@@ -10,7 +10,7 @@ class Solver:
         self.turn_hand_ranks = []
         self.river_hand_ranks = []
 
-    def rank_hands(self, cards: list):
+    def rank_hands(cards: list):
         """Ranks the hand of a given list of cards.
 
         Args:
@@ -57,13 +57,8 @@ class Solver:
                 break
 
         # Special case for A-5-4-3-2 (Ace low straight)
-        if 14 in ranks and 5 in ranks and 4 in ranks and 3 in ranks and 2 in ranks:
-            if not straight_high_card:
-                straight_high_card = 5
-
-        # Check for royal flush (A-K-Q-J-10 of same suit)
-        if flush_cards and all(r in [c.rank for c in flush_cards] for r in [14, 13, 12, 11, 10]):
-            return 10, 14  # Royal flush
+        if not straight_high_card and all(r in ranks for r in [14, 5, 4, 3, 2]):
+            straight_high_card = 5
 
         # Check for straight flush
         if flush_cards and straight_high_card:
@@ -71,7 +66,10 @@ class Solver:
             
             # Standard straight flush check
             if straight_high_card != 5 and all(r in flush_ranks for r in range(straight_high_card-4, straight_high_card+1)):
-                return 9, straight_high_card
+                if straight_high_card == 14:
+                    return 10, 14 # Royal flush
+                else:
+                    return 9, straight_high_card
             
             # A-5-4-3-2 straight flush
             if straight_high_card == 5 and all(r in flush_ranks for r in [14, 5, 4, 3, 2]):
@@ -82,15 +80,13 @@ class Solver:
             if count == 4:
                 return 8, rank
 
-        # Check for full house
         three_ranks = [r for r, c in rank_counts.items() if c == 3]
         pair_ranks = [r for r, c in rank_counts.items() if c == 2]
 
-        if three_ranks:
-            three_ranks.sort(reverse=True)
-            
-            if len(three_ranks) > 1 or pair_ranks:
-                return 7, three_ranks[0]
+        # Check for full house
+        three_ranks.sort(reverse=True)
+        if (three_ranks and pair_ranks) or len(three_ranks) > 1:
+            return 7, three_ranks[0]
 
         # Check for flush
         if flush_cards:
