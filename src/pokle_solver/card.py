@@ -23,7 +23,9 @@ class Card:
         return cls(rank, suit)
 
     def __repr__(self):
-        return f"{self.rank}{self.suit}"
+        face_cards = {11: 'J', 12: 'Q', 13: 'K', 14: 'A'}
+        rank_str = face_cards.get(self.rank, str(self.rank))
+        return f"{rank_str}{self.suit}"
 
     def __eq__(self, other):
         if isinstance(other, Card):
