@@ -147,7 +147,7 @@ class Solver:
         # High card
         best_hand = sorted(cards, reverse=True)[:5]
         best_hand_ranks = [c.rank for c in best_hand]
-        return 1, best_hand_ranks, best_hand
+        return 1, best_hand_ranks, [best_hand[0]]  # Return only the highest card for high card
 
     def possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
@@ -164,7 +164,7 @@ class Solver:
             current_player_ranks = [] 
             for player, hole in self.hole_cards.items():
                 full_hand = hole + list(flop)
-                # adds the play name, hand rank, tie breaker list, and best hand
+                # adds the player name, hand rank, tie breaker list, and best hand
                 current_player_ranks.append((player, *self.rank_hands(full_hand)))
 
             current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
@@ -174,7 +174,7 @@ class Solver:
         
         return valid_flops
 
-    def possible_turns_rivers(self, flops: list, hand_rankings: list):
+    def possible_turns_rivers(self, flops: list):
         """Find all possible turns that maintain the current player rankings.
 
         Args:
@@ -183,6 +183,17 @@ class Solver:
         Returns:
             list: A list of valid turn combinations.
         """
+        all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
+        
+        if len(flops[0]) == 3:
+            hand_rankings = self.turn_hand_ranks
+            is_river = False
+        elif len(flops[0]) == 4:
+            hand_rankings = self.river_hand_ranks
+            is_river = True
+        else:
+            raise ValueError("Flops must be a list of 3 (turn) or 4 (river) cards.")
+
         valid_turns = []
         for flop in flops:
             turn_deck = set(self.current_deck) - set(flop)
@@ -190,22 +201,24 @@ class Solver:
             for turn_card in turn_deck:
                 full_board = list(flop) + [turn_card]
                 
+                rank_cards_used = set()
                 current_player_ranks = []
                 for player, hole in self.hole_cards.items():
                     full_hand = hole + full_board
-                    rank, kicker = self.rank_hands(full_hand)
-                    composite_rank = rank * 100 + kicker
-                    current_player_ranks.append((composite_rank, player))
+                    # adds the player name, hand rank, tie breaker list, and best hand
+                    player_hand = self.rank_hands(full_hand)
+                    current_player_ranks.append((player, *player_hand))
+                    if is_river and player_hand[0] != 6: # Not a flush
+                        rank_cards_used.update(set(player_hand[2]))
+                    
+                if is_river:
+                    rank_cards_used.difference_update(all_hole_cards)
+                    if rank_cards_used != set(full_board):
+                        continue  # Skip if any board cards are unused in player hands
 
-                current_player_ranks.sort(reverse=True, key=lambda x: x[0])
-                current_player_ranks_comparable = [player for _, player in current_player_ranks]
+                current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
+                current_player_ranks_comparable = [player[0] for player in current_player_ranks]
                 if current_player_ranks_comparable == hand_rankings:
                     valid_turns.append(tuple(full_board))
 
-        return valid_turns # Print first 5 valid river combinations
-    
-solver = Solver()
-valid_flops = solver.possible_flops()
-print(f"Found {len(valid_flops)} valid flops.")
-for flop in valid_flops[:5]:
-    print(f"Valid Flop: {flop}")
+        return valid_turns
