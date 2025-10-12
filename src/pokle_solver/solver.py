@@ -28,6 +28,7 @@ class Solver:
         self.river_hand_ranks = river_hand_ranks
 
         self.current_deck = MASTER_DECK.copy()
+        self.possible_rivers = []
 
     @staticmethod
     def rank_hands(cards: list):
@@ -88,10 +89,7 @@ class Solver:
             # Standard straight flush check
             if straight_high_card != 5 and all(r in flush_ranks for r in range(straight_high_card-4, straight_high_card+1)):
                 # Get the 5 cards that form the straight flush
-                if straight_high_card == 14:
-                    return 10, [14], best_hand  # Royal flush
-                else:
-                    return 9, [straight_high_card], best_hand
+                return 9, [straight_high_card], best_hand
             
             # A-5-4-3-2 straight flush
             if straight_high_card == 5 and all(r in flush_ranks for r in [14, 5, 4, 3, 2]):
@@ -234,3 +232,53 @@ class Solver:
                     valid_turns.append(tuple(full_board))
 
         return valid_turns
+
+    def solve(self):
+        """Find all possible board runouts that maintain the current player rankings.
+
+        Returns:
+            list: A list of valid board runouts.
+        """
+        possible_flops = self.possible_flops()
+        possible_turns = self.possible_turns_rivers(possible_flops)
+        self.possible_rivers = self.possible_turns_rivers(possible_turns)
+            
+        return self.possible_rivers
+    
+    def print_game(self, river: list):
+        if not self.possible_rivers:
+            raise ValueError("No possible rivers calculated. Please run solve() first.")
+        if len(river) != 5 or not all(isinstance(card, Card) for card in river):
+            raise ValueError("River must be a list of exactly 5 Card objects.")
+            if river not in self.possible_rivers:
+                raise ValueError("Provided river is not in the list of possible rivers.")
+        
+        hand_rank_symbols = {1: 'HC', 2: '1P', 3: '2P', 4: '3K', 5: 'St', 6: 'Fl', 7: 'FH', 8: '4K', 9: 'SF'}
+        p1_0 = self.hole_cards['P1'][0].ljust(3)
+        p2_0 = self.hole_cards['P2'][0].ljust(3)
+        p3_0 = self.hole_cards['P3'][0].ljust(3)
+        p1_1 = self.hole_cards['P1'][1].ljust(3)
+        p2_1 = self.hole_cards['P2'][1].ljust(3)
+        p3_1 = self.hole_cards['P3'][1].ljust(3)
+        p1_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P1'] + river[:3])[0]]
+        p2_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P2'] + river[:3])[0]]
+        p3_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P3'] + river[:3])[0]]
+        p1_turn = hand_rank_symbols[self.rank_hands(self.hole_cards['P1'] + river[:4])[0]]
+        p2_turn = hand_rank_symbols[self.rank_hands(self.hole_cards['P2'] + river[:4])[0]]
+        p3_turn = hand_rank_symbols[self.rank_hands(self.hole_cards['P3'] + river[:4])[0]]
+        p1_river = hand_rank_symbols[self.rank_hands(self.hole_cards['P1'] + river)[0]]
+        p2_river = hand_rank_symbols[self.rank_hands(self.hole_cards['P2'] + river)[0]]
+        p3_river = hand_rank_symbols[self.rank_hands(self.hole_cards['P3'] + river)[0]]
+
+        print("Pokle Solver Results")
+        print(f"         P1   P2   P3")
+        print(f"       ---- ---- ----")
+        print(f"        {p1_0}  {p2_0}  {p3_0}")
+        print(f"        {p1_1}  {p2_1}  {p3_1}")
+        print(f" flop:  {p1_flop}   {p2_flop}   {p3_flop}")
+        print(f" turn:  {p1_turn}   {p2_turn}   {p3_turn}")
+        print(f"river:  {p1_river}   {p2_river}   {p3_river}")
+        print(f"      |---- flop ----|turn|river|")
+        print(f"      | {river[0]} {river[1]} {river[2]}|{river[3]}|{river[4]}|")
+
+
