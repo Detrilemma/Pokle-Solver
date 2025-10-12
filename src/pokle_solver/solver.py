@@ -5,17 +5,29 @@ from itertools import combinations
 MASTER_DECK = [Card(rank, suit) for rank in range(2, 15) for suit in ['H', 'D', 'C', 'S']]
 
 class Solver:
-    def __init__(self):
-        self.hole_cards = {
-            'P1': [Card.from_string('2H'), Card.from_string('3D')],
-            'P2': [Card.from_string('KC'), Card.from_string('KH')],
-            'P3': [Card.from_string('2C'), Card.from_string('5H')]
-        }
-        self.current_deck = MASTER_DECK.copy()
+    def __init__(self, p1hole: list, p2hole: list, p3hole: list,
+                 flop_hand_ranks: list, turn_hand_ranks: list, river_hand_ranks: list):
+        
+        # Validate hole cards
+        for pname, phole in zip(['P1', 'P2', 'P3'], [p1hole, p2hole, p3hole]):
+            if not isinstance(phole, list) or len(phole) != 2 or not all(isinstance(card, Card) for card in phole):
+                raise ValueError(f"{pname} hole cards must be a list of exactly 2 Card objects.")
+        
+        for hand_rank_lists in [flop_hand_ranks, turn_hand_ranks, river_hand_ranks]:
+            if not isinstance(hand_rank_lists, list) or sorted(hand_rank_lists) != ['P1', 'P2', 'P3']:
+                raise ValueError("Hand rank lists must be a permutation of ['P1', 'P2', 'P3']")
 
-        self.flop_hand_ranks = ['P1', 'P2', 'P3']
-        self.turn_hand_ranks = ['P1', 'P3', 'P2']
-        self.river_hand_ranks = ['P2', 'P3', 'P1']
+        self.hole_cards = {
+            'P1': p1hole,
+            'P2': p2hole,
+            'P3': p3hole
+        }
+
+        self.flop_hand_ranks = flop_hand_ranks
+        self.turn_hand_ranks = turn_hand_ranks
+        self.river_hand_ranks = river_hand_ranks
+
+        self.current_deck = MASTER_DECK.copy()
 
     @staticmethod
     def rank_hands(cards: list):
