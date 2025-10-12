@@ -246,6 +246,7 @@ class Solver:
         return self.possible_rivers
     
     def print_game(self, river: list):
+        """Prints the game state for a given river."""
         if not self.possible_rivers:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if len(river) != 5 or not all(isinstance(card, Card) for card in river):
@@ -254,12 +255,12 @@ class Solver:
                 raise ValueError("Provided river is not in the list of possible rivers.")
         
         hand_rank_symbols = {1: 'HC', 2: '1P', 3: '2P', 4: '3K', 5: 'St', 6: 'Fl', 7: 'FH', 8: '4K', 9: 'SF'}
-        p1_0 = self.hole_cards['P1'][0].ljust(3)
-        p2_0 = self.hole_cards['P2'][0].ljust(3)
-        p3_0 = self.hole_cards['P3'][0].ljust(3)
-        p1_1 = self.hole_cards['P1'][1].ljust(3)
-        p2_1 = self.hole_cards['P2'][1].ljust(3)
-        p3_1 = self.hole_cards['P3'][1].ljust(3)
+        p1_0 = str(self.hole_cards['P1'][0]).ljust(3)
+        p2_0 = str(self.hole_cards['P2'][0]).ljust(3)
+        p3_0 = str(self.hole_cards['P3'][0]).ljust(3)
+        p1_1 = str(self.hole_cards['P1'][1]).ljust(3)
+        p2_1 = str(self.hole_cards['P2'][1]).ljust(3)
+        p3_1 = str(self.hole_cards['P3'][1]).ljust(3)
         p1_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P1'] + river[:3])[0]]
         p2_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P2'] + river[:3])[0]]
         p3_flop = hand_rank_symbols[self.rank_hands(self.hole_cards['P3'] + river[:3])[0]]
