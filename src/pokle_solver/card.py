@@ -1,5 +1,7 @@
 class Card:
     def __init__(self, rank: int, suit: str):
+        face_cards = {'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
+        rank = int(face_cards.get(rank, rank))
         if rank < 2 or rank > 14:
             raise ValueError("Rank must be between 2 and 14 (where 11=J, 12=Q, 13=K, 14=A)")
         if suit not in ['H', 'D', 'C', 'S']:
@@ -10,9 +12,7 @@ class Card:
     @classmethod
     def from_string(cls, card_string: str):
         """Create card from string like '10H' or 'AS'"""
-        face_cards = {'J': 11, 'Q': 12, 'K': 13, 'A': 14}
-        rank_str = card_string[:-1]
-        rank = int(face_cards.get(rank_str, rank_str))
+        rank = card_string[:-1]
         suit = card_string[-1]
         return cls(rank, suit)
     

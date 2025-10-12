@@ -1,15 +1,22 @@
 from card import Card
+from itertools import combinations
+
+MASTER_DECK = [Card(rank, suit) for rank in range(2, 15) for suit in ['H', 'D', 'C', 'S']]
 
 class Solver:
     def __init__(self):
-        self.p1_hole = []
-        self.p2_hole = []
-        self.p3_hole = []
+        self.hole_cards = {
+            'P1': [Card.from_string('2H'), Card.from_string('3D')],
+            'P2': [Card.from_string('KC'), Card.from_string('KH')],
+            'P3': [Card.from_string('2C'), Card.from_string('5H')]
+        }
+        self.current_deck = MASTER_DECK.copy()
 
-        self.flop_hand_ranks = []
-        self.turn_hand_ranks = []
-        self.river_hand_ranks = []
+        self.flop_hand_ranks = ['P1', 'P2', 'P3']
+        self.turn_hand_ranks = ['P1', 'P3', 'P2']
+        self.river_hand_ranks = ['P2', 'P3', 'P1']
 
+    @staticmethod
     def rank_hands(cards: list):
         """Ranks the hand of a given list of cards.
 
@@ -22,7 +29,7 @@ class Solver:
                 kicker_rank (int): Rank of the kicker card
 
         Example:
-            cards = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H'), Card(13, 'H'), Card(14, 'H')]
+            cards = [Card(10, 'H'), Card('J', 'H'), Card('Q', 'H'), Card('K', 'H'), Card('A', 'H')]
             rank, kicker_rank = self.rank_hands(cards)
             print(rank)  # Output: 10 (Royal Flush)
             print(kicker_rank)  # Output: 14 (Ace)
@@ -111,3 +118,29 @@ class Solver:
 
         # High card
         return 1, ranks[0]
+
+    def possible_flops(self):
+        """Find all possible flops that maintain the current player rankings.
+
+        Returns:
+            list: A list of valid flop combinations.
+        """
+        hole_card_hashes = {hash(card) for hole in self.hole_cards.values() for card in hole}
+        remaining_deck = [card for card in self.current_deck if hash(card) not in hole_card_hashes]
+        all_flops = list(combinations(remaining_deck, 3))
+
+        valid_flops = []
+        for flop in all_flops:
+            current_player_ranks = [] 
+            for player, hole in self.hole_cards.items():
+                full_hand = hole + list(flop)
+                rank, kicker = self.rank_hands(full_hand)
+                composite_rank = rank * 100 + kicker
+                current_player_ranks.append((composite_rank, player))
+            
+            current_player_ranks.sort(reverse=True, key=lambda x: x[0])
+            current_player_ranks_comparable = [player for _, player in current_player_ranks]
+            if current_player_ranks_comparable == self.flop_hand_ranks:
+                valid_flops.append(flop)
+        
+        return valid_flops

@@ -1,6 +1,10 @@
 from card import Card
+from solver import Solver
 
-card1 = Card.from_string("2H")
-card2 = Card.from_string("AS")
-card3 = Card.from_string("4D")
-print(sorted([card1, card2, card3]))
+def test_flop_generation():
+    solver = Solver()
+    flops = solver.possible_flops()
+    print(len(flops))
+
+if __name__ == "__main__":
+    test_flop_generation()
