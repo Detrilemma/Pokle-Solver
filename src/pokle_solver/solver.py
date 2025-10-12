@@ -126,8 +126,8 @@ class Solver:
             list: A list of valid flop combinations.
         """
         hole_card_hashes = {hash(card) for hole in self.hole_cards.values() for card in hole}
-        remaining_deck = [card for card in self.current_deck if hash(card) not in hole_card_hashes]
-        all_flops = list(combinations(remaining_deck, 3))
+        self.current_deck = [card for card in self.current_deck if hash(card) not in hole_card_hashes]
+        all_flops = list(combinations(self.current_deck, 3))
 
         valid_flops = []
         for flop in all_flops:
@@ -144,3 +144,33 @@ class Solver:
                 valid_flops.append(flop)
         
         return valid_flops
+
+    def possible_turns_rivers(self, flops: list, hand_rankings: list):
+        """Find all possible turns that maintain the current player rankings.
+
+        Args:
+            flops (list): A list of valid flop combinations.
+
+        Returns:
+            list: A list of valid turn combinations.
+        """
+        valid_turns = []
+        for flop in flops:
+            turn_deck = set(self.current_deck) - set(flop)
+            
+            for turn_card in turn_deck:
+                full_board = list(flop) + [turn_card]
+                
+                current_player_ranks = []
+                for player, hole in self.hole_cards.items():
+                    full_hand = hole + full_board
+                    rank, kicker = self.rank_hands(full_hand)
+                    composite_rank = rank * 100 + kicker
+                    current_player_ranks.append((composite_rank, player))
+
+                current_player_ranks.sort(reverse=True, key=lambda x: x[0])
+                current_player_ranks_comparable = [player for _, player in current_player_ranks]
+                if current_player_ranks_comparable == hand_rankings:
+                    valid_turns.append(tuple(full_board))
+
+        return valid_turns# Print first 5 valid river combinations
