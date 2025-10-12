@@ -229,7 +229,7 @@ class Solver:
                 current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
                 current_player_ranks_comparable = [player[0] for player in current_player_ranks]
                 if current_player_ranks_comparable == hand_rankings:
-                    valid_turns.append(tuple(full_board))
+                    valid_turns.append(full_board)
 
         return valid_turns
 
@@ -251,8 +251,8 @@ class Solver:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if len(river) != 5 or not all(isinstance(card, Card) for card in river):
             raise ValueError("River must be a list of exactly 5 Card objects.")
-            if river not in self.possible_rivers:
-                raise ValueError("Provided river is not in the list of possible rivers.")
+        if river not in self.possible_rivers:
+            raise ValueError("Provided river is not in the list of possible rivers.")
         
         hand_rank_symbols = {1: 'HC', 2: '1P', 3: '2P', 4: '3K', 5: 'St', 6: 'Fl', 7: 'FH', 8: '4K', 9: 'SF'}
         p1_0 = str(self.hole_cards['P1'][0]).ljust(3)
@@ -279,7 +279,8 @@ class Solver:
         print(f" flop:  {p1_flop}   {p2_flop}   {p3_flop}")
         print(f" turn:  {p1_turn}   {p2_turn}   {p3_turn}")
         print(f"river:  {p1_river}   {p2_river}   {p3_river}")
-        print(f"      |---- flop ----|turn|river|")
-        print(f"      | {river[0]} {river[1]} {river[2]}|{river[3]}|{river[4]}|")
+        print(f"|---flop---|turn|river|")
+        print(f"| {river[0]} {river[1]} {river[2]} | {river[3]} | {river[4]}  |")
+        print()
 
 
