@@ -1,6 +1,6 @@
 from card import Card
-from collections import defaultdict
 from solver import Solver
+import pandas as pd
 
 def example():
     hole_cards_1011 = {
@@ -23,21 +23,24 @@ def example():
     turn_hand_ranks_1012 = ['P1', 'P2', 'P3']
     river_hand_ranks_1012 = ['P1', 'P3', 'P2']
 
-    solver_1011 = Solver(hole_cards_1011['P1'], hole_cards_1011['P2'], hole_cards_1011['P3'],
-                         flop_hand_ranks_1011, turn_hand_ranks_1011, river_hand_ranks_1011)
+    # solver_1011 = Solver(hole_cards_1011['P1'], hole_cards_1011['P2'], hole_cards_1011['P3'],
+    #                      flop_hand_ranks_1011, turn_hand_ranks_1011, river_hand_ranks_1011)
     # possible_rivers_1011 = solver_1011.solve()
     # print(f"Possible rivers for test case 1011: {len(possible_rivers_1011)}")
 
     # solver_1011.print_game(possible_rivers_1011[0])
 
-    # solver_1012 = Solver(hole_cards_1012['P1'], hole_cards_1012['P2'], hole_cards_1012['P3'],
-    #                      flop_hand_ranks_1012, turn_hand_ranks_1012, river_hand_ranks_1012)
-    # possible_rivers_1012 = solver_1012.solve()
-    # print(f"Possible rivers for test case 1012: {len(possible_rivers_1012)}")
-    # for river in possible_rivers_1012[:300]:
+    solver_1012 = Solver(hole_cards_1012['P1'], hole_cards_1012['P2'], hole_cards_1012['P3'],
+                         flop_hand_ranks_1012, turn_hand_ranks_1012, river_hand_ranks_1012)
+    possible_rivers_1012 = solver_1012.solve()
+    print(f"Possible rivers for test case 1012: {len(possible_rivers_1012)}")
+
+    # for river in possible_rivers_1012:
     #     print(river)
 
-    # solver_1012.print_game(possible_rivers_1012[0])
+    sb_series = solver_1012.entropy_series()
+    
+    print(sb_series)
 
 
 if __name__ == "__main__":

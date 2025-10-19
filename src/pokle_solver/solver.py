@@ -1,6 +1,8 @@
 from collections import defaultdict
 from card import Card
 from itertools import combinations
+import pandas as pd
+from scipy.stats import entropy
 
 MASTER_DECK = [Card(rank, suit) for rank in range(2, 15) for suit in ['H', 'D', 'C', 'S']]
 
@@ -9,9 +11,9 @@ class Solver:
                  flop_hand_ranks: list, turn_hand_ranks: list, river_hand_ranks: list):
         
         # Validate hole cards
-        for pname, phole in zip(['P1', 'P2', 'P3'], [p1hole, p2hole, p3hole]):
-            if not isinstance(phole, list) or len(phole) != 2 or not all(isinstance(card, Card) for card in phole):
-                raise ValueError(f"{pname} hole cards must be a list of exactly 2 Card objects.")
+        for p_name, p_hole in zip(['P1', 'P2', 'P3'], [p1hole, p2hole, p3hole]):
+            if not isinstance(p_hole, list) or len(p_hole) != 2 or not all(isinstance(card, Card) for card in p_hole):
+                raise ValueError(f"{p_name} hole cards must be a list of exactly 2 Card objects.")
         
         for hand_rank_lists in [flop_hand_ranks, turn_hand_ranks, river_hand_ranks]:
             if not isinstance(hand_rank_lists, list) or sorted(hand_rank_lists) != ['P1', 'P2', 'P3']:
@@ -40,8 +42,8 @@ class Solver:
         Returns:
             tuple: (rank, tie_breakers, best_hand)
                 rank (int): Numerical rank of the hand (1-10, where 10 is Royal Flush)
-                tie_breakers (list): list of ranks used for tie-breaking
-                best_hand (list): List of Card objects representing the best hand
+                tie_breakers (tuple): tuple of ranks used for tie-breaking
+                best_hand (tuple): Tuple of Card objects representing the best hand
 
         Example:
             cards = [Card(10, 'H'), Card('J', 'H'), Card('Q', 'H'), Card('K', 'H'), Card('A', 'H')]
@@ -89,17 +91,17 @@ class Solver:
             # Standard straight flush check
             if straight_high_card != 5 and all(r in flush_ranks for r in range(straight_high_card-4, straight_high_card+1)):
                 # Get the 5 cards that form the straight flush
-                return 9, [straight_high_card], best_hand
+                return 9, (straight_high_card,), tuple(best_hand)
             
             # A-5-4-3-2 straight flush
             if straight_high_card == 5 and all(r in flush_ranks for r in [14, 5, 4, 3, 2]):
-                return 9, [5], best_hand
+                return 9, (5,), tuple(best_hand)
 
         # Check for four of a kind
         for rank, group in rank_groups.items():
             if len(group) == 4:
                 four_of_a_kind = group
-                return 8, [rank], four_of_a_kind
+                return 8, (rank,), tuple(four_of_a_kind)
 
         three_ranks = [r for r, group in rank_groups.items() if len(group) == 3]
         pair_ranks = [r for r, group in rank_groups.items() if len(group) == 2]
@@ -113,13 +115,13 @@ class Solver:
                 second_three = rank_groups[min(three_ranks)]
                 pair = second_three[:2]
             best_hand = three_of_a_kind + pair
-            return 7, [max(three_ranks), max(pair).rank], best_hand
+            return 7, (max(three_ranks), max(pair).rank), tuple(best_hand)
 
         # Check for flush
         if flush_cards:
             flush_card_hand = flush_cards[:5]
             flush_card_hand_ranks = sorted([c.rank for c in flush_card_hand], reverse=True)
-            return 6, flush_card_hand_ranks, flush_card_hand
+            return 6, tuple(flush_card_hand_ranks), tuple(flush_card_hand)
 
         # Check for straight
         if straight_high_card:
@@ -130,14 +132,14 @@ class Solver:
             else:
                 best_hand = sorted([c for c in cards if straight_high_card >= c.rank >= straight_high_card-4], 
                                    reverse=True)
-            return 5, [straight_high_card], best_hand[:5]
+            return 5, (straight_high_card,), tuple(best_hand[:5])
 
         # Check for three of a kind
         if three_ranks:
             three_of_a_kind = rank_groups[max(three_ranks)]
             remaining = sorted(set(cards) - set(three_of_a_kind), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return 4, [three_of_a_kind[0].rank] + remaining_ranks[:2], three_of_a_kind
+            return 4, tuple([three_of_a_kind[0].rank] + remaining_ranks[:2]), tuple(three_of_a_kind)
 
         # Check for two pair
         if len(pair_ranks) >= 2:
@@ -145,19 +147,19 @@ class Solver:
             two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
             remaining = sorted(set(cards) - set(two_pair), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return 3, pair_ranks[:2] + remaining_ranks[:1], two_pair
+            return 3, tuple(pair_ranks[:2] + remaining_ranks[:1]), tuple(two_pair)
 
         # Check for one pair
         if pair_ranks:
             pair = rank_groups[pair_ranks[0]] 
             remaining = sorted(set(cards) - set(pair), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return 2, [pair_ranks[0]] + remaining_ranks[:3], pair
+            return 2, tuple([pair_ranks[0]] + remaining_ranks[:3]), tuple(pair)
 
         # High card
         best_hand = sorted(cards, reverse=True)[:5]
         best_hand_ranks = [c.rank for c in best_hand]
-        return 1, best_hand_ranks, [best_hand[0]]  # Return only the highest card for high card
+        return 1, tuple(best_hand_ranks), tuple([best_hand[0]])  # Return only the highest card for high card
 
     def possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
@@ -177,15 +179,15 @@ class Solver:
                 # adds the player name, hand rank, tie breaker list, and best hand
                 current_player_ranks.append((player, *self.rank_hands(full_hand)))
 
-            hand_rankings = [(player[1], player[2]) for player in current_player_ranks]
-            if len(set(hand_rankings)) < 3:
+            hand_comparators = [(player[1], player[2]) for player in current_player_ranks]
+            if len(set(hand_comparators)) < 3:
                 continue  # Skip if there are ties in hand rankings
 
             current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
             current_player_ranks_comparable = [player[0] for player in current_player_ranks]
             if current_player_ranks_comparable == self.flop_hand_ranks:
                 valid_flops.append(flop)
-        
+
         return valid_flops
 
     def possible_turns_rivers(self, flops: list):
@@ -230,14 +232,14 @@ class Solver:
                     if rank_cards_used != set(full_board):
                         continue  # Skip if any board cards are unused in player hands
                 
-                hand_rankings = [(player[1], player[2]) for player in current_player_ranks]
-                if len(set(hand_rankings)) < 3:
+                hand_comparators = [(player[1], player[2]) for player in current_player_ranks]
+                if len(set(hand_comparators)) < 3:
                     continue  # Skip if there are ties in hand rankings
                 
                 current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
                 current_player_ranks_comparable = [player[0] for player in current_player_ranks]
                 if current_player_ranks_comparable == hand_rankings:
-                    valid_turns.append(full_board)
+                    valid_turns.append(tuple(full_board))
 
         return valid_turns
     
@@ -280,14 +282,14 @@ class Solver:
             # Output: ({'KS_g', '9S_y', 'AS_y'}, {'4H_y'}, {'6S_g'})
         """
         # Validate inputs
-        if not isinstance(guess, list) or not isinstance(answer, list):
-            raise ValueError("Guess and answer must be lists of exactly 5 Card objects.")
+        if not isinstance(guess, tuple) or not isinstance(answer, tuple):
+            raise ValueError("Guess and answer must be tuples of exactly 5 Card objects.")
         if len(guess) != 5 or len(answer) != 5:
-            raise ValueError("Guess and answer must be lists of exactly 5 Card objects.")
+            raise ValueError("Guess and answer must be tuples of exactly 5 Card objects.")
         if not all(isinstance(c, Card) for c in guess) or not all(isinstance(c, Card) for c in answer):
             raise ValueError("All elements in guess and answer must be Card instances.")
-        
-        answer_flop = answer[:3]
+
+        answer_flop = list(answer[:3])
         flop_result = set()
         
         for g_card in guess[:3]:
@@ -323,6 +325,31 @@ class Solver:
             river_result.add(f"{guess[4]}")  # Grey
 
         return flop_result, turn_result, river_result
+    
+    def entropy_series(self):
+        """Returns a pandas series for each possible river with it's respective Shannon entropy value ordered from highest to lowest.
+
+        Returns:
+            pd.Series: A pandas series with rivers as index and their Shannon entropy values as data, sorted from highest to lowest entropy.
+        """
+        # Validate state
+        if not getattr(self, "possible_rivers", None):
+            raise ValueError("No possible rivers calculated. Please run solve() first.")
+
+        rivers = pd.Series(self.possible_rivers)
+        temp_df = pd.DataFrame({'rivers': rivers, 'key': 1}) #.reset_index()
+        # temp_df = temp_df.rename(columns={'index': 'index1'})
+        table_comparisons = temp_df.merge(temp_df, on='key', suffixes=('_guess', '_answer')).drop('key', axis=1)
+        table_comparisons['table_comparison'] = table_comparisons.apply(
+            lambda row: self.compare_tables(row['rivers_guess'], row['rivers_answer']),
+            axis=1
+        )
+        table_comparisons = table_comparisons.astype({'rivers_guess': str, 'rivers_answer': str})
+        table_comparisons = table_comparisons.pivot(index='rivers_answer', columns='rivers_guess', values='table_comparison')
+
+        entropy_from_series = lambda s: entropy(s.value_counts(normalize=True), base=2)
+
+        return table_comparisons.apply(entropy_from_series, axis=0).sort_values(ascending=False)
 
     def solve(self):
         """Find all possible board runouts that maintain the current player rankings.
