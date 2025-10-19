@@ -177,6 +177,10 @@ class Solver:
                 # adds the player name, hand rank, tie breaker list, and best hand
                 current_player_ranks.append((player, *self.rank_hands(full_hand)))
 
+            hand_rankings = [(player[1], player[2]) for player in current_player_ranks]
+            if len(set(hand_rankings)) < 3:
+                continue  # Skip if there are ties in hand rankings
+
             current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
             current_player_ranks_comparable = [player[0] for player in current_player_ranks]
             if current_player_ranks_comparable == self.flop_hand_ranks:
@@ -225,13 +229,100 @@ class Solver:
                     rank_cards_used.difference_update(all_hole_cards)
                     if rank_cards_used != set(full_board):
                         continue  # Skip if any board cards are unused in player hands
-
+                
+                hand_rankings = [(player[1], player[2]) for player in current_player_ranks]
+                if len(set(hand_rankings)) < 3:
+                    continue  # Skip if there are ties in hand rankings
+                
                 current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))  # Sort by rank and tie breakers
                 current_player_ranks_comparable = [player[0] for player in current_player_ranks]
                 if current_player_ranks_comparable == hand_rankings:
                     valid_turns.append(full_board)
 
         return valid_turns
+    
+    @staticmethod
+    def compare_tables(guess: list, answer: list):
+        """Compares the guess and the answer and outputs the "color" (green, yellow or grey) of each card based on the wordle-esque game Pokle.
+        If two cards in the same position (flop, turn, river) have the same rank and suit, they are "green".
+        If the cards in the same position have either a matching rank or suit (but not both), they are "yellow".
+        For the cards in the flop (the first three cards), the order of the cards does not matter. ie, 2H 3D 4S is the same as 4S 2H 3D.
+        In the flop, two cards in the guess that match either the rank or the suit (but is not a complete match) of one card would both be "yellow".
+        However, if one card matches both the rank and suit of one card, it is "green" and the other card would be "grey" (or not colored).
+        For example, if the flop of the guess is 2H 3D 4S and the flop of the answer is 4D 5S 2H, the first card would be "green" (2H), the second and third card would be "yellow" (3D matches the D of 4D, and 4S matches the S of 5S).
+        Another example, if the flop of the guess is KD KH 3D and the flop of the answer is 7C KS AS, the first and second cards would be "yellow" (KD and KH both match the K of KS), and the third card would be "grey" (3D does not match either the rank or suit of any card in the answer).
+        Final example, if the flop of the guess is KS KH 3D and the flop of the answer is 7C KS AS, the first card would be "green" (KS), the second card would be "grey" (KH does not match either the rank or suit of any remaining cards in the answer), and the third card would be "grey" (3D does not match either the rank or suit of any remaining cards in the answer).
+        Cards in the turn (the fourth card) and river (the fifth card) are compared by position, so the fourth card of the guess is compared to the fourth card of the answer, and the fifth card of the guess is compared to the fifth card of the answer.
+
+        Args:
+            guess (list): The first table to compare.
+            answer (list): The second table to compare.
+
+        Returns:
+            tuple: A tuple of three sets for the flop in the first position, the turn in the second position, and the river in the third position. 
+            Each card string has an underscore and a character representing its color ('_g' for green, '_y' for yellow, and no suffix for grey).
+                e.g. ({'2H_g', '3D_y', '4S'}, {'5H_y'}, {'6C_g'})
+
+        Examples:
+            guess = [Card.from_string(c) for c in ['4S', 'KD', '7S', '4D', '6S']]
+            answer = [Card.from_string(c) for c in ['3H', '9D', 'KS', '6C', '4S']]
+            print(compare_tables(guess, answer))
+            # Output: ({'4S_y', 'KD_y', '7S_y'}, {'4D'}, {'6S_y'})
+
+            guess = [Card.from_string(c) for c in ['6D', '7D', '9C', 'KC', 'AS']]
+            answer = [Card.from_string(c) for c in ['9H', '3S', '6D', 'KC', '9S']]
+            print(compare_tables(guess, answer))
+            # Output: ({'6D_g', '7D', '9C_y'}, {'KC_g'}, {'AS_y'})
+
+            guess = [Card.from_string(c) for c in ['KS', '9S', 'AS', '4H', '6S']]
+            answer = [Card.from_string(c) for c in ['7S', 'KS', 'AH', '4C', '6S']]
+            print(compare_tables(guess, answer))
+            # Output: ({'KS_g', '9S_y', 'AS_y'}, {'4H_y'}, {'6S_g'})
+        """
+        # Validate inputs
+        if not isinstance(guess, list) or not isinstance(answer, list):
+            raise ValueError("Guess and answer must be lists of exactly 5 Card objects.")
+        if len(guess) != 5 or len(answer) != 5:
+            raise ValueError("Guess and answer must be lists of exactly 5 Card objects.")
+        if not all(isinstance(c, Card) for c in guess) or not all(isinstance(c, Card) for c in answer):
+            raise ValueError("All elements in guess and answer must be Card instances.")
+        
+        answer_flop = answer[:3]
+        flop_result = set()
+        
+        for g_card in guess[:3]:
+            found_match = False
+            for a_card in range(len(answer_flop)):
+                if g_card == answer_flop[a_card] and g_card.is_same_suit(answer_flop[a_card]):
+                    flop_result.add(f"{g_card}_g")  # Green
+                    flop_result.discard(f"{g_card}_y")  # Remove any yellow if previously added
+                    answer_flop[a_card] = Card()  # Mark as used
+                    found_match = True
+                    break
+                elif g_card == answer_flop[a_card] or g_card.is_same_suit(answer_flop[a_card]):
+                    flop_result.add(f"{g_card}_y")  # Yellow
+                    found_match = True
+                    # No need to mark as used for yellow
+            if not found_match:
+                flop_result.add(f"{g_card}")  # Grey (no suffix)
+
+        turn_result = set()
+        if guess[3] == answer[3] and guess[3].is_same_suit(answer[3]):
+            turn_result.add(f"{guess[3]}_g")  # Green
+        elif guess[3] == answer[3] or guess[3].is_same_suit(answer[3]):
+            turn_result.add(f"{guess[3]}_y")  # Yellow
+        else:
+            turn_result.add(f"{guess[3]}")  # Grey
+
+        river_result = set()
+        if guess[4] == answer[4] and guess[4].is_same_suit(answer[4]):
+            river_result.add(f"{guess[4]}_g")  # Green
+        elif guess[4] == answer[4] or guess[4].is_same_suit(answer[4]):
+            river_result.add(f"{guess[4]}_y")  # Yellow
+        else:
+            river_result.add(f"{guess[4]}")  # Grey
+
+        return flop_result, turn_result, river_result
 
     def solve(self):
         """Find all possible board runouts that maintain the current player rankings.

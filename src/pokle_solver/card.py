@@ -1,11 +1,13 @@
 class Card:
-    def __init__(self, rank: int, suit: str):
+    def __init__(self, rank: int = None, suit: str = None):
         face_cards = {'T': 10, 'J': 11, 'Q': 12, 'K': 13, 'A': 14}
-        rank = int(face_cards.get(rank, rank))
-        if rank < 2 or rank > 14:
-            raise ValueError("Rank must be between 2 and 14 (where 11=J, 12=Q, 13=K, 14=A)")
-        if suit not in ['H', 'D', 'C', 'S']:
-            raise ValueError("Suit must be one of 'H', 'D', 'C', 'S'")
+        if rank != None and suit != None:
+            rank = int(face_cards.get(rank, rank))
+            if (rank < 2 or rank > 14):
+                raise ValueError("Rank must be between 2 and 14 (where 11=J, 12=Q, 13=K, 14=A)")
+            if suit not in ['H', 'D', 'C', 'S']:
+                raise ValueError("Suit must be one of 'H', 'D', 'C', 'S'")
+        
         self.rank = rank
         self.suit = suit
 
@@ -23,6 +25,9 @@ class Card:
         return cls(rank, suit)
 
     def __repr__(self):
+        if self.rank == None and self.suit == None:
+            return "C()"
+
         face_cards = {11: 'J', 12: 'Q', 13: 'K', 14: 'A'}
         rank_str = face_cards.get(self.rank, str(self.rank))
         return f"{rank_str}{self.suit}"
