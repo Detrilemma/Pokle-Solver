@@ -38,9 +38,15 @@ def example():
     # for river in possible_rivers_1012:
     #     print(river)
 
-    sb_series = solver_1012.entropy_series()
+    # first guess
+    first_guess = solver_1012.get_maxh_table()
+    print(first_guess)
+    comparisons_matrix = getattr(solver_1012, 'comparisons_matrix')
+    print(comparisons_matrix['(4H, 5H, 6H, 4S, 7D)'].value_counts())
     
-    print(sb_series)
+    # second guess
+    solver_1012.next_table_guess(first_guess, ['_y', '_y', '_g', '', '_y'])
+
 
 
 if __name__ == "__main__":
