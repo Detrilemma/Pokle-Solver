@@ -3,16 +3,12 @@ This project solves Pokle games
 
 ## Project Notes:
 ### To Do:
-- reconfigure the possible tables methods to conform to DRY
-- use a dataclass wherever applicable
 - Hot tip from Sonnet 4.5 in the compare() method: "For even more performance, consider caching ColorCard objects or using object pooling if you're calling this millions of times."
 - Test implementing my own combination function vs itertools function
 - test making the Table.compare() method more readable
 - Change GH handle to Detrilemma
 - Write tests
 - figure out git hooks to Ruff
-- add arg validation in rank_hands()
-- make appropriate methods private
 - connect to the web with playwright
 
 ### Testing examples:

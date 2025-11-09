@@ -106,5 +106,5 @@ def demo():
             print(f"Error: {e}")
 
 if __name__ == "__main__":
-    sandbox()
+    demo()
     
