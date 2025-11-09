@@ -58,10 +58,15 @@ class Card:
 
         reset_color = "\033[0m"
         rank_str = face_cards.get(self.rank, str(self.rank))
+        suit_symbol = suit_symbols[self.suit]
+        
+        # Pad the visible content to 3 characters BEFORE adding color codes
+        visible_str = f"{rank_str}{suit_symbol}".rjust(3)
+        
         text_color = suit_colors[self.suit]
         bg_color = "\033[47m"
         
-        return f"{bg_color}{text_color}{rank_str}{suit_symbols[self.suit]}{reset_color}"
+        return f"{bg_color}{text_color}{visible_str}{reset_color}"
 
     def __eq__(self, other):
         if isinstance(other, Card):
@@ -195,5 +200,3 @@ class ColorCard(Card):
     
 c = Card.from_string("10H")
 cc = c.to_color('g')
-
-

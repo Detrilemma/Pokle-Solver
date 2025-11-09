@@ -32,9 +32,7 @@ class Solver:
 
         # Updated validation for hand ranks
         for hand_rank_lists in [flop_hand_ranks, turn_hand_ranks, river_hand_ranks]:
-            if not isinstance(hand_rank_lists, list) or sorted(hand_rank_lists) != [
-                1, 2, 3
-            ]:
+            if not isinstance(hand_rank_lists, list) or sorted(hand_rank_lists) != [1, 2, 3]:
                 raise ValueError(
                     "Hand rank lists must be a permutation of [1, 2, 3]"
                 )
@@ -245,6 +243,7 @@ class Solver:
         possible_outcomes = self.comparisons_matrix[str(current_guess)]
 
         color_current_guess = current_guess.update_colors(table_colors)
+        self.used_tables.append(color_current_guess)
 
         possible_outcomes_filtered = possible_outcomes[
             possible_outcomes == color_current_guess
@@ -276,7 +275,26 @@ class Solver:
 
         return self.possible_rivers
 
-    def print_game(self, table: Table):
+    @staticmethod
+    def __player_hand_place(hand_ranks: list):
+        """Convert list of player hands ordered by hand strength to a list of places for each player.
+
+        Args:
+            hand_ranks (list): A list of player hand ranks ordered by hand strength.
+
+        Returns:
+            list: A list where the index represents the player (0=P1, 1=P2, 2=P3) and the value represents their place (1=best, 2=second, 3=third).
+
+        Example:
+            >>> hand_ranks = [3, 1, 2]  # P2 has best hand, P1 second, P3 third
+            >>> Solver.__player_hand_place(hand_ranks)
+            [2, 3, 1]
+        """
+        enum_rankings = [(index, player) for index, player in enumerate(hand_ranks, start=1)]
+        enum_rankings.sort(key=lambda x: x[1])  # Sort by player number
+        return [place for place, _ in enum_rankings]
+
+    def print_game(self, table: Table, is_win: bool = False):
         """Prints the game state for a given table."""
         if not self.possible_rivers:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
@@ -307,35 +325,46 @@ class Solver:
 
         # Calculate hand ranks for flop
         flop_table = Table(*list(table.flop))
-        p1_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P1"])[0]]
-        p2_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P2"])[0]]
-        p3_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P3"])[0]]
+        p1_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
+        p2_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
+        p3_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
         
         # Calculate hand ranks for turn
         turn_table = Table(*list(table.flop), table.turn)
-        p1_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P1"])[0]]
-        p2_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P2"])[0]]
-        p3_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P3"])[0]]
+        p1_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
+        p2_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
+        p3_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
         
         # Calculate hand ranks for river (full table)
-        p1_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P1"])[0]]
-        p2_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P2"])[0]]
-        p3_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P3"])[0]]
+        p1_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
+        p2_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
+        p3_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
 
         # Format table cards for display
-        flop_cards = [card.pstr().ljust(3) for card in table.cards[:3]]
-        turn_card = table.turn.pstr().ljust(3)
-        river_card = table.river.pstr().ljust(3)
+
+        flop_places = self.__player_hand_place(self.flop_hand_ranks)
+        turn_places = self.__player_hand_place(self.turn_hand_ranks)
+        river_places = self.__player_hand_place(self.river_hand_ranks)
+        bg_colors = {1: "\033[48;2;255;215;0m", 2: "\033[48;2;192;192;192m", 3: "\033[48;2;205;127;50m"}
 
         print("Pokle Solver Results")
-        print("        P1   P2   P3")
-        print("       ---- ---- ----")
-        print(f"        {p1_0}   {p2_0}   {p3_0}")
-        print(f"        {p1_1}   {p2_1}   {p3_1}")
-        print("------ ---- ---- ----")
-        print(f" flop:  {p1_flop}   {p2_flop}   {p3_flop}")
-        print(f" turn:  {p1_turn}   {p2_turn}   {p3_turn}")
-        print(f"river:  {p1_river}   {p2_river}   {p3_river}")
-        print("|---flop---|turn|river|")
-        print(f"| {flop_cards[0]} {flop_cards[1]} {flop_cards[2]} | {turn_card} | {river_card}  |")
+        print("              P1   P2   P3")
+        print("             ---  ---  ---")
+        print(f"             {p1_0}  {p2_0}  {p3_0}")
+        print(f"             {p1_1}  {p2_1}  {p3_1}")
+        print("      ------ ---  ---  ---")
+        print(f"       flop:  {bg_colors[flop_places[0]]}{p1_flop}   {bg_colors[flop_places[1]]}{p2_flop}   {bg_colors[flop_places[2]]}{p3_flop}")
+        print(f"       turn:  {bg_colors[turn_places[0]]}{p1_turn}   {bg_colors[turn_places[1]]}{p2_turn}   {bg_colors[turn_places[2]]}{p3_turn}")
+        print(f"      river:  {bg_colors[river_places[0]]}{p1_river}   {bg_colors[river_places[1]]}{p2_river}   {bg_colors[river_places[2]]}{p3_river}")
+        print("|-----flop----|-turn|river|")
+        for t in self.used_tables:
+            c_flop_cards = [card.pstr().ljust(3) for card in t.cards[:3]]
+            c_turn_card = t.turn.pstr().ljust(3)
+            c_river_card = t.river.pstr().ljust(3)
+            print(f"| {c_flop_cards[0]} {c_flop_cards[1]} {c_flop_cards[2]} | {c_turn_card} | {c_river_card} |")
+        if not is_win:
+            flop_cards = [card.pstr().ljust(3) for card in table.cards[:3]]
+            turn_card = table.turn.pstr().ljust(3)
+            river_card = table.river.pstr().ljust(3)
+            print(f"| {flop_cards[0]} {flop_cards[1]} {flop_cards[2]} | {turn_card} | {river_card} |")
         print()

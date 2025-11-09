@@ -79,7 +79,8 @@ def sandbox():
     solver.print_game(solver.get_maxh_table())
 
     card_colors = ['e' for _ in range(5)]
-    while not all(color == 'g' for color in card_colors):
+    is_all_green = False
+    while not is_all_green:
         color_input = input("Enter color feedback for river cards (g=green, y=yellow, e=grey), e.g. g y e e g: ").lower()
         card_colors = color_input.split()
         try:
@@ -87,7 +88,8 @@ def sandbox():
                 raise ValueError("Please enter exactly 5 colors using 'g', 'y', or 'e'.")
             solver.next_table_guess(card_colors)
             print(f"Possible rivers remaining: {len(solver.possible_rivers)}")
-            solver.print_game(solver.get_maxh_table())
+            is_all_green = all(color == 'g' for color in card_colors)
+            solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
         except ValueError as e:
             print(f"Error: {e}")
 
@@ -133,7 +135,8 @@ def demo():
     solver.print_game(solver.get_maxh_table())
 
     card_colors = ['e' for _ in range(5)]
-    while not all(color == 'g' for color in card_colors):
+    is_all_green = False
+    while not is_all_green:
         color_input = input("Enter color feedback for river cards (g=green, y=yellow, e=grey), e.g. g y e e g: ").lower()
         card_colors = color_input.split()
         try:
@@ -141,10 +144,11 @@ def demo():
                 raise ValueError("Please enter exactly 5 colors using 'g', 'y', or 'e'.")
             solver.next_table_guess(card_colors)
             print(f"Possible rivers remaining: {len(solver.possible_rivers)}")
-            solver.print_game(solver.get_maxh_table())
+            is_all_green = all(color == 'g' for color in card_colors)
+            solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
         except ValueError as e:
             print(f"Error: {e}")
 
 if __name__ == "__main__":
-    sandbox()
+    demo()
     
