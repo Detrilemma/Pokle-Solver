@@ -64,6 +64,7 @@ def sandbox():
     # turn = [2, 3, 1]
     # river = [3, 2, 1]
 
+    # slow output for testing
     p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
     p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
     p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
@@ -71,6 +72,15 @@ def sandbox():
     flop = [2, 3, 1]
     turn = [3, 2, 1]
     river = [3, 1, 2]
+
+    # fast example
+    # p1_hole = [Card.from_string("QD"), Card.from_string("QC")]
+    # p2_hole = [Card.from_string("10H"), Card.from_string("2H")]
+    # p3_hole = [Card.from_string("9H"), Card.from_string("KH")]
+
+    # flop = [2, 1, 3]
+    # turn = [1, 3, 2]
+    # river = [2, 1, 3]
 
 
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
@@ -87,7 +97,7 @@ def sandbox():
             if len(card_colors) != 5 or not all(color in ['g', 'y', 'e'] for color in card_colors):
                 raise ValueError("Please enter exactly 5 colors using 'g', 'y', or 'e'.")
             solver.next_table_guess(card_colors)
-            print(f"Possible rivers remaining: {len(solver.possible_rivers)}")
+            print(f"Possible rivers remaining: {len(solver.valid_rivers)}")
             is_all_green = all(color == 'g' for color in card_colors)
             solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
         except ValueError as e:
@@ -143,12 +153,12 @@ def demo():
             if len(card_colors) != 5 or not all(color in ['g', 'y', 'e'] for color in card_colors):
                 raise ValueError("Please enter exactly 5 colors using 'g', 'y', or 'e'.")
             solver.next_table_guess(card_colors)
-            print(f"Possible rivers remaining: {len(solver.possible_rivers)}")
+            print(f"Possible rivers remaining: {len(solver.valid_rivers)}")
             is_all_green = all(color == 'g' for color in card_colors)
             solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
         except ValueError as e:
             print(f"Error: {e}")
 
 if __name__ == "__main__":
-    demo()
+    sandbox()
     

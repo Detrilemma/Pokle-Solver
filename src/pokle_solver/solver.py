@@ -3,6 +3,15 @@ from itertools import combinations
 import pandas as pd
 from scipy.stats import entropy
 from table import Table
+from dataclasses import dataclass
+
+@dataclass
+class PhaseEvaluation:
+    """Configuration for evaluating a poker phase (flop, turn, or river)."""
+    table: Table
+    expected_rankings: list
+    prev_cards_used: set = None
+    validate_all_cards_used: bool = False
 
 MASTER_DECK = [
     Card(rank, suit) for rank in range(2, 15) for suit in ["H", "D", "C", "S"]
@@ -44,7 +53,7 @@ class Solver:
         self.river_hand_ranks = river_hand_ranks
 
         self.current_deck = MASTER_DECK.copy()
-        self.possible_rivers = []
+        self.valid_rivers = []
         self.river_entropies = pd.Series()
         self.table_comparisons = pd.DataFrame()
         self.comparisons_matrix = pd.DataFrame()
@@ -66,107 +75,134 @@ class Solver:
 
         valid_flops = []
         for flop in all_flops:
-            current_player_ranks = []
-            table = Table(flop)
-            cards_used = set()
+            flop_table = Table(flop)
             
-            for player, hole in self.hole_cards.items():
-                # adds the player name, hand rank, tie breaker list, and best hand
-                hand_result = table.rank_hand(hole)
-                current_player_ranks.append((player, *hand_result))
-                # Collect cards used (exclude flush hands)
-                if hand_result[0] != 6:  # Not a flush
-                    cards_used.update(set(hand_result[2]))
-
-            hand_comparators = [
-                (player[1], player[2]) for player in current_player_ranks
-            ]
-            if len(set(hand_comparators)) < 3:
-                continue  # Skip if there are ties in hand rankings
-
-            current_player_ranks.sort(
-                reverse=True, key=lambda x: (x[1], x[2])
-            )  # Sort by rank and tie breakers
+            phase_eval = PhaseEvaluation(
+                table=flop_table,
+                expected_rankings=self.flop_hand_ranks
+            )
+            is_valid, cards_used = self.__evaluate_phase(phase_eval)
             
-            # Map player names to their rankings (1=best, 2=second, 3=third)
-            current_player_ranks_comparable = [
-                int(player[0][1]) for player in current_player_ranks
-            ]
-            if current_player_ranks_comparable == self.flop_hand_ranks:
-                # Remove hole cards from cards_used
-                cards_used.difference_update(hole_cards)
-                valid_flops.append((table, cards_used))
+            if is_valid:
+                valid_flops.append((flop_table, cards_used))
 
         return valid_flops
 
-    def possible_turns_rivers(self, previous_phase: list):
-        """Find all possible turns or rivers that maintain the current player rankings.
+    def __evaluate_phase(self, phase_eval: PhaseEvaluation):
+        """Helper method to evaluate hands for all players at a given phase.
 
         Args:
-            previous_phase (list): A list of tuples (table, cards_used) from previous phase.
+            phase_eval (PhaseEvaluation): Configuration object containing table, rankings, 
+                                           and validation parameters.
 
         Returns:
-            list: A list of tuples (table, cards_used_accumulated) for valid combinations.
+            tuple: (is_valid, cards_used_accumulated) where is_valid indicates if this table 
+                   matches expected rankings, and cards_used_accumulated is the set of all 
+                   cards used across phases.
         """
         all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
-
-        # Determine phase by checking first table
-        first_table = previous_phase[0][0]
-        if first_table and not first_table.turn and not first_table.river:
-            hand_rankings = self.turn_hand_ranks
-            is_river = False
-        elif first_table and not first_table.river:
-            hand_rankings = self.river_hand_ranks
-            is_river = True
-        else:
-            raise ValueError("Input must be flop-only or flop+turn Tables.")
-
-        valid_next_phase = []
+        current_player_ranks = []
+        cards_used_current_phase = set()
         
-        for table, prev_cards_used in previous_phase:
-            turn_deck = set(self.current_deck) - set(table.cards)
+        for player, hole in self.hole_cards.items():
+            # adds the player name, hand rank, tie breaker list, and best hand
+            player_hand = phase_eval.table.rank_hand(hole)
+            current_player_ranks.append((player, *player_hand))
+            
+            # Collect cards used in current phase (exclude flush hands)
+            if player_hand[0] != 6:  # Not a flush
+                cards_used_current_phase.update(set(player_hand[2]))
 
-            for next_card in turn_deck:
-                new_table = table.add_cards(next_card)
+        # Accumulate cards used across all phases
+        if phase_eval.prev_cards_used is not None:
+            cards_used_accumulated = phase_eval.prev_cards_used | cards_used_current_phase
+        else:
+            cards_used_accumulated = cards_used_current_phase
+        
+        cards_used_accumulated.difference_update(all_hole_cards)
+        
+        # For river, validate that all board cards were used at some point
+        if phase_eval.validate_all_cards_used and cards_used_accumulated != set(phase_eval.table.cards):
+            return False, cards_used_accumulated
 
-                current_player_ranks = []
-                cards_used_current_phase = set()
+        # Check for ties in hand rankings
+        hand_comparators = {(player[1], player[2]) for player in current_player_ranks}
+        if len(hand_comparators) < 3:
+            return False, cards_used_accumulated
+
+        # Sort by rank and tie breakers
+        current_player_ranks.sort(reverse=True, key=lambda x: (x[1], x[2]))
+        
+        # Map player names to their rankings (1=best, 2=second, 3=third)
+        current_player_ranks_comparable = [
+            int(player[0][1]) for player in current_player_ranks
+        ]
+        
+        is_valid = current_player_ranks_comparable == phase_eval.expected_rankings
+        return is_valid, cards_used_accumulated
+
+    def __find_valid_next_phase(
+        self, 
+        prev_phase_results: list, 
+        expected_rankings: list, 
+        validate_all_cards_used: bool = False
+    ):
+        """Helper method to find valid tables for the next phase (turn or river).
+
+        Args:
+            prev_phase_results (list): List of tuples (table, cards_used) from previous phase.
+            expected_rankings (list): Expected hand rankings for this phase.
+            validate_all_cards_used (bool): Whether to validate all cards were used.
+
+        Returns:
+            list: List of tuples (table, cards_used_accumulated) for valid combinations.
+        """
+        valid_tables = []
+        
+        for prev_table, prev_cards_used in prev_phase_results:
+            remaining_deck = set(self.current_deck) - set(prev_table.cards)
+
+            for next_card in remaining_deck:
+                next_table = prev_table.add_cards(next_card)
                 
-                for player, hole in self.hole_cards.items():
-                    # adds the player name, hand rank, tie breaker list, and best hand
-                    player_hand = new_table.rank_hand(hole)
-                    current_player_ranks.append((player, *player_hand))
-                    
-                    # Collect cards used in current phase
-                    if player_hand[0] != 6:  # Not a flush
-                        cards_used_current_phase.update(set(player_hand[2]))
-
-                # Accumulate cards used across all phases
-                cards_used_accumulated = prev_cards_used | cards_used_current_phase
-                cards_used_accumulated.difference_update(all_hole_cards)
+                phase_eval = PhaseEvaluation(
+                    table=next_table,
+                    expected_rankings=expected_rankings,
+                    prev_cards_used=prev_cards_used,
+                    validate_all_cards_used=validate_all_cards_used
+                )
+                is_valid, cards_used = self.__evaluate_phase(phase_eval)
                 
-                # For river, validate that all board cards were used at some point
-                if is_river and cards_used_accumulated != set(new_table.cards):
-                    continue  # Skip if any board cards are unused across all phases
+                if is_valid:
+                    valid_tables.append((next_table, cards_used))
 
-                hand_comparators = { 
-                    (player[1], player[2]) for player in current_player_ranks
-                }
-                if len(hand_comparators) < 3:
-                    continue  # Skip if there are ties in hand rankings
+        return valid_tables
 
-                current_player_ranks.sort(
-                    reverse=True, key=lambda x: (x[1], x[2])
-                )  # Sort by rank and tie breakers
-                
-                # Map player names to their rankings (1=best, 2=second, 3=third)
-                current_player_ranks_comparable = [
-                    int(player[0][1]) for player in current_player_ranks
-                ]
-                if current_player_ranks_comparable == hand_rankings:
-                    valid_next_phase.append((new_table, cards_used_accumulated))
+    def possible_turns(self, flops: list):
+        """Find all possible turns that maintain the current player rankings.
 
-        return valid_next_phase
+        Args:
+            flops (list): A list of tuples (table, cards_used) from flop phase.
+
+        Returns:
+            list: A list of tuples (table, cards_used_accumulated) for valid turn combinations.
+        """
+        return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
+
+    def possible_rivers(self, turns: list):
+        """Find all possible rivers that maintain the current player rankings.
+
+        Args:
+            turns (list): A list of tuples (table, cards_used) from turn phase.
+
+        Returns:
+            list: A list of tuples (table, cards_used_accumulated) for valid river combinations.
+        """
+        return self.__find_valid_next_phase(
+            turns, 
+            self.river_hand_ranks, 
+            validate_all_cards_used=True
+        )
 
     def entropy_from_series(self, s: pd.Series):
         """Calculates the Shannon entropy from a pandas series.
@@ -186,10 +222,10 @@ class Solver:
             tuple: A tuple of 5 Card objects representing the river with the highest entropy.
         """
         # Validate state
-        if not getattr(self, "possible_rivers", None):
+        if not getattr(self, "valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
 
-        rivers = pd.Series(self.possible_rivers)
+        rivers = pd.Series(self.valid_rivers)
         temp_df = pd.DataFrame({"rivers": rivers, "key": 1})
         self.table_comparisons = temp_df.merge(
             temp_df, on="key", suffixes=("_guess", "_answer")
@@ -256,9 +292,9 @@ class Solver:
             self.table_comparisons["guess_str"].isin(possible_outcomes_filtered)
         ]
         comparisons_filtered = comparisons_filtered[['guess_str', 'guess']].drop_duplicates(subset=['guess_str'])
-        self.possible_rivers = comparisons_filtered['guess'].tolist()
+        self.valid_rivers = comparisons_filtered['guess'].tolist()
 
-        return self.possible_rivers
+        return self.valid_rivers
 
     def solve(self):
         """Find all possible board runouts that maintain the current player rankings.
@@ -266,14 +302,14 @@ class Solver:
         Returns:
             list: A list of valid Table objects representing complete board runouts.
         """
-        possible_flops = self.possible_flops()
-        possible_turns = self.possible_turns_rivers(possible_flops)
-        river_results = self.possible_turns_rivers(possible_turns)
+        flops = self.possible_flops()
+        turns = self.possible_turns(flops)
+        river_results = self.possible_rivers(turns)
         
         # Extract just the tables (drop the cards_used metadata)
-        self.possible_rivers = [table for table, _ in river_results]
+        self.valid_rivers = [table for table, _ in river_results]
 
-        return self.possible_rivers
+        return self.valid_rivers
 
     @staticmethod
     def __player_hand_place(hand_ranks: list):
@@ -296,11 +332,11 @@ class Solver:
 
     def print_game(self, table: Table, is_win: bool = False):
         """Prints the game state for a given table."""
-        if not self.possible_rivers:
+        if not self.valid_rivers:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if not isinstance(table, Table):
             raise ValueError("Table must be an instance of the Table class.")
-        if table not in self.possible_rivers:
+        if table not in self.valid_rivers:
             raise ValueError("Provided table is not in the list of possible rivers.")
 
         hand_rank_symbols = {

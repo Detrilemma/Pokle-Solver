@@ -3,7 +3,8 @@ This project solves Pokle games
 
 ## Project Notes:
 ### To Do:
-- Make the ColorTable constructor inherit from the parent
+- reconfigure the possible tables methods to conform to DRY
+- use a dataclass wherever applicable
 - Hot tip from Sonnet 4.5 in the compare() method: "For even more performance, consider caching ColorCard objects or using object pooling if you're calling this millions of times."
 - Test implementing my own combination function vs itertools function
 - test making the Table.compare() method more readable
@@ -12,9 +13,6 @@ This project solves Pokle games
 - figure out git hooks to Ruff
 - add arg validation in rank_hands()
 - make appropriate methods private
-- add print options to get_maxh_table()
-- have the print_game() remember the last output for subsequent plays
-- add colors to hand rankings in the printout
 - connect to the web with playwright
 
 ### Testing examples:
