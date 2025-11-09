@@ -172,36 +172,6 @@ class Table:
             return Table(*color_flop, color_turn)
         else:
             return Table(*color_flop)
-    
-    def is_match(self, other: Table) -> bool:
-        """Check if this color table could have been produced by comparing with other.
-        
-        Args:
-            other: The Table to check against
-        
-        Returns:
-            bool: True if the colors match what compare() would produce
-        """
-        if not all(isinstance(card, ColorCard) for card in self.cards):
-            raise ValueError("is_match can only be called if this table contains ColorCards")
-        if not isinstance(other, Table):
-            raise ValueError("other must be an instance of Table")
-        if len(self.cards) != len(other.cards):
-            raise ValueError("Both tables must have the same number of cards to compare")
-        
-        # Create a plain Table from self's cards (strip colors)
-        plain_cards = tuple(Card(card.rank, card.suit) for card in self.cards)
-        plain_table = Table(plain_cards)
-        
-        # Compare and check if result matches self
-        expected = plain_table.compare(other)
-        
-        # Compare colors efficiently
-        return (
-            all(sc.color == ec.color for sc, ec in zip(self.flop, expected.flop)) and
-            (self.turn.color == expected.turn.color if self.turn else True) and
-            (self.river.color == expected.river.color if self.river else True)
-        )
 
     def update_colors(self, colors: list[str]) -> Table:
         """Create a new Table with updated card colors.

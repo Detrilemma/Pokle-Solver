@@ -53,14 +53,19 @@ class Solver:
         self.river_hand_ranks = river_hand_ranks
 
         self.current_deck = MASTER_DECK.copy()
-        self.valid_rivers = []
-        self.river_entropies = pd.Series()
-        self.table_comparisons = pd.DataFrame()
-        self.comparisons_matrix = pd.DataFrame()
-        self.maxh_table = tuple()
-        self.used_tables = []
+        self.__valid_rivers = []
+        self.__river_entropies = pd.Series()
+        self.__table_comparisons = pd.DataFrame()
+        self.__comparisons_matrix = pd.DataFrame()
+        self.__maxh_table = tuple()
+        self.__used_tables = []
 
-    def possible_flops(self):
+    @property
+    def valid_rivers(self):
+        """Get the list of valid river tables."""
+        return self.__valid_rivers
+
+    def __possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
 
         Returns:
@@ -178,7 +183,7 @@ class Solver:
 
         return valid_tables
 
-    def possible_turns(self, flops: list):
+    def __possible_turns(self, flops: list):
         """Find all possible turns that maintain the current player rankings.
 
         Args:
@@ -189,7 +194,7 @@ class Solver:
         """
         return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
 
-    def possible_rivers(self, turns: list):
+    def __possible_rivers(self, turns: list):
         """Find all possible rivers that maintain the current player rankings.
 
         Args:
@@ -204,7 +209,7 @@ class Solver:
             validate_all_cards_used=True
         )
 
-    def entropy_from_series(self, s: pd.Series):
+    def __entropy_from_series(self, s: pd.Series):
         """Calculates the Shannon entropy from a pandas series.
 
         Args:
@@ -222,37 +227,37 @@ class Solver:
             tuple: A tuple of 5 Card objects representing the river with the highest entropy.
         """
         # Validate state
-        if not getattr(self, "valid_rivers", None):
+        if not getattr(self, "_Solver__valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
 
-        rivers = pd.Series(self.valid_rivers)
+        rivers = pd.Series(self.__valid_rivers)
         temp_df = pd.DataFrame({"rivers": rivers, "key": 1})
-        self.table_comparisons = temp_df.merge(
+        self.__table_comparisons = temp_df.merge(
             temp_df, on="key", suffixes=("_guess", "_answer")
         ).drop("key", axis=1)
-        self.table_comparisons.rename(
+        self.__table_comparisons.rename(
             columns={"rivers_guess": "guess", "rivers_answer": "answer"}, inplace=True
         )
-        self.table_comparisons["table_comparison"] = self.table_comparisons.apply(
+        self.__table_comparisons["table_comparison"] = self.__table_comparisons.apply(
             lambda row: row["guess"].compare(row["answer"]), axis=1
         )
-        self.table_comparisons[["guess_str", "answer_str"]] = self.table_comparisons[
+        self.__table_comparisons[["guess_str", "answer_str"]] = self.__table_comparisons[
             ["guess", "answer"]
         ].astype(str)
-        self.comparisons_matrix = self.table_comparisons.pivot(
+        self.__comparisons_matrix = self.__table_comparisons.pivot(
             index="answer_str", columns="guess_str", values="table_comparison"
         )
 
-        self.river_entropies = self.comparisons_matrix.apply(
-            self.entropy_from_series, axis=0
+        self.__river_entropies = self.__comparisons_matrix.apply(
+            self.__entropy_from_series, axis=0
         ).sort_values(ascending=False)
 
-        maxh_table_str = self.river_entropies.index[0]
-        self.maxh_table = self.table_comparisons[
-            self.table_comparisons["guess_str"] == maxh_table_str
+        maxh_table_str = self.__river_entropies.index[0]
+        self.__maxh_table = self.__table_comparisons[
+            self.__table_comparisons["guess_str"] == maxh_table_str
         ]["guess"].iloc[0]
 
-        return self.maxh_table
+        return self.__maxh_table
 
     def next_table_guess(self, table_colors: list, current_guess: Table = None):
         """Given a current guess and the resulting table colors, filter the possible rivers to those that match the colors.
@@ -266,8 +271,8 @@ class Solver:
             list: A filtered list of possible rivers that match the given colors.
         """
         if current_guess is None:
-            current_guess = self.maxh_table
-        if not getattr(self, "valid_rivers", None):
+            current_guess = self.__maxh_table
+        if not getattr(self, "_Solver__valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if not isinstance(current_guess, Table) or not current_guess.flop or not current_guess.turn or not current_guess.river:
             raise ValueError("Current guess must be a complete Table object with flop, turn, and river.")
@@ -276,10 +281,10 @@ class Solver:
                 "Table colors must be a list of 5 colors for each card in the table."
             )
         
-        possible_outcomes = self.comparisons_matrix[str(current_guess)]
+        possible_outcomes = self.__comparisons_matrix[str(current_guess)]
 
         color_current_guess = current_guess.update_colors(table_colors)
-        self.used_tables.append(color_current_guess)
+        self.__used_tables.append(color_current_guess)
 
         possible_outcomes_filtered = possible_outcomes[
             possible_outcomes == color_current_guess
@@ -288,13 +293,13 @@ class Solver:
             raise ValueError(
                 "No possible rivers match the given colors for the current guess."
             )
-        comparisons_filtered = self.table_comparisons[
-            self.table_comparisons["guess_str"].isin(possible_outcomes_filtered)
+        comparisons_filtered = self.__table_comparisons[
+            self.__table_comparisons["guess_str"].isin(possible_outcomes_filtered)
         ]
         comparisons_filtered = comparisons_filtered[['guess_str', 'guess']].drop_duplicates(subset=['guess_str'])
-        self.valid_rivers = comparisons_filtered['guess'].tolist()
+        self.__valid_rivers = comparisons_filtered['guess'].tolist()
 
-        return self.valid_rivers
+        return self.__valid_rivers
 
     def solve(self):
         """Find all possible board runouts that maintain the current player rankings.
@@ -302,14 +307,14 @@ class Solver:
         Returns:
             list: A list of valid Table objects representing complete board runouts.
         """
-        flops = self.possible_flops()
-        turns = self.possible_turns(flops)
-        river_results = self.possible_rivers(turns)
+        flops = self.__possible_flops()
+        turns = self.__possible_turns(flops)
+        river_results = self.__possible_rivers(turns)
         
         # Extract just the tables (drop the cards_used metadata)
-        self.valid_rivers = [table for table, _ in river_results]
+        self.__valid_rivers = [table for table, _ in river_results]
 
-        return self.valid_rivers
+        return self.__valid_rivers
 
     @staticmethod
     def __player_hand_place(hand_ranks: list):
@@ -332,11 +337,11 @@ class Solver:
 
     def print_game(self, table: Table, is_win: bool = False):
         """Prints the game state for a given table."""
-        if not self.valid_rivers:
+        if not self.__valid_rivers:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if not isinstance(table, Table):
             raise ValueError("Table must be an instance of the Table class.")
-        if table not in self.valid_rivers:
+        if table not in self.__valid_rivers:
             raise ValueError("Provided table is not in the list of possible rivers.")
 
         hand_rank_symbols = {
@@ -393,7 +398,7 @@ class Solver:
         print(f"       turn:  {bg_colors[turn_places[0]]}{p1_turn}   {bg_colors[turn_places[1]]}{p2_turn}   {bg_colors[turn_places[2]]}{p3_turn}")
         print(f"      river:  {bg_colors[river_places[0]]}{p1_river}   {bg_colors[river_places[1]]}{p2_river}   {bg_colors[river_places[2]]}{p3_river}")
         print("|-----flop----|-turn|river|")
-        for t in self.used_tables:
+        for t in self.__used_tables:
             c_flop_cards = [card.pstr().ljust(3) for card in t.cards[:3]]
             c_turn_card = t.turn.pstr().ljust(3)
             c_river_card = t.river.pstr().ljust(3)

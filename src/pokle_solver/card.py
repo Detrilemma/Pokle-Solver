@@ -197,6 +197,3 @@ class ColorCard(Card):
         if isinstance(other, ColorCard):
             return self.color == other.color
         return NotImplemented
-    
-c = Card.from_string("10H")
-cc = c.to_color('g')
