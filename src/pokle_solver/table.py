@@ -2,6 +2,14 @@ from __future__ import annotations
 from card import *
 import numpy as np
 from collections import defaultdict
+from dataclasses import dataclass
+
+@dataclass
+class HandRanking:
+    """Result of evaluating a poker hand."""
+    rank: int  # Numerical rank (1=high card, 2=pair, ..., 9=straight flush)
+    tie_breakers: tuple  # Tuple of ranks for tie-breaking
+    best_hand: tuple  # Tuple of Card objects in the best 5-card hand
 
 
 class Table:
@@ -216,24 +224,24 @@ class Table:
         
         return Table(updated_cards)
     
-    def rank_hand(self, hole: list):
+    def rank_hand(self, hole: list) -> HandRanking:
         """Ranks the hand of a given list of cards.
 
         Args:
             cards (list): A list of Card objects.
 
         Returns:
-            tuple: (rank, tie_breakers, best_hand)
-                rank (int): Numerical rank of the hand (1-10, where 10 is Royal Flush)
+            HandRanking: A dataclass containing:
+                rank (int): Numerical rank of the hand (1-9, where 9 is Straight Flush)
                 tie_breakers (tuple): tuple of ranks used for tie-breaking
                 best_hand (tuple): Tuple of Card objects representing the best hand
 
         Example:
             cards = [Card(10, 'H'), Card('J', 'H'), Card('Q', 'H'), Card('K', 'H'), Card('A', 'H')]
-            rank, tie_breakers, best_hand = self.rank_hands(cards)
-            print(rank)  # Output: 10 (Royal Flush)
-            print(tie_breakers)  # Output: [14] (Ace)
-            print(best_hand)  # Output: [10H, JH, QH, KH, AH]
+            result = self.rank_hands(cards)
+            print(result.rank)  # Output: 9 (Straight Flush)
+            print(result.tie_breakers)  # Output: (14,) (Ace)
+            print(result.best_hand)  # Output: (10H, JH, QH, KH, AH)
         """
         cards = hole + list(self.cards)
         
@@ -285,19 +293,19 @@ class Table:
                 for r in range(straight_high_card - 4, straight_high_card + 1)
             ):
                 # Get the 5 cards that form the straight flush
-                return 9, (straight_high_card,), tuple(best_hand)
+                return HandRanking(9, (straight_high_card,), tuple(best_hand))
 
             # A-5-4-3-2 straight flush
             if straight_high_card == 5 and all(
                 r in flush_ranks for r in [14, 5, 4, 3, 2]
             ):
-                return 9, (5,), tuple(best_hand)
+                return HandRanking(9, (5,), tuple(best_hand))
 
         # Check for four of a kind
         for rank, group in rank_groups.items():
             if len(group) == 4:
                 four_of_a_kind = group
-                return 8, (rank,), tuple(four_of_a_kind)
+                return HandRanking(8, (rank,), tuple(four_of_a_kind))
 
         three_ranks = [r for r, group in rank_groups.items() if len(group) == 3]
         pair_ranks = [r for r, group in rank_groups.items() if len(group) == 2]
@@ -311,7 +319,7 @@ class Table:
                 second_three = rank_groups[min(three_ranks)]
                 pair = second_three[:2]
             best_hand = three_of_a_kind + pair
-            return 7, (max(three_ranks), max(pair).rank), tuple(best_hand)
+            return HandRanking(7, (max(three_ranks), max(pair).rank), tuple(best_hand))
 
         # Check for flush
         if flush_cards:
@@ -319,7 +327,7 @@ class Table:
             flush_card_hand_ranks = sorted(
                 [c.rank for c in flush_card_hand], reverse=True
             )
-            return 6, tuple(flush_card_hand_ranks), tuple(flush_card_hand)
+            return HandRanking(6, tuple(flush_card_hand_ranks), tuple(flush_card_hand))
 
         # Check for straight
         if straight_high_card:
@@ -338,14 +346,14 @@ class Table:
                     ],
                     reverse=True,
                 )
-            return 5, (straight_high_card,), tuple(best_hand[:5])
+            return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
 
         # Check for three of a kind
         if three_ranks:
             three_of_a_kind = rank_groups[max(three_ranks)]
             remaining = sorted(set(cards) - set(three_of_a_kind), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return (
+            return HandRanking(
                 4,
                 tuple([three_of_a_kind[0].rank] + remaining_ranks[:2]),
                 tuple(three_of_a_kind),
@@ -357,19 +365,19 @@ class Table:
             two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
             remaining = sorted(set(cards) - set(two_pair), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return 3, tuple(pair_ranks[:2] + remaining_ranks[:1]), tuple(two_pair)
+            return HandRanking(3, tuple(pair_ranks[:2] + remaining_ranks[:1]), tuple(two_pair))
 
         # Check for one pair
         if pair_ranks:
             pair = rank_groups[pair_ranks[0]]
             remaining = sorted(set(cards) - set(pair), reverse=True)
             remaining_ranks = [c.rank for c in remaining]
-            return 2, tuple([pair_ranks[0]] + remaining_ranks[:3]), tuple(pair)
+            return HandRanking(2, tuple([pair_ranks[0]] + remaining_ranks[:3]), tuple(pair))
 
         # High card
         best_hand = sorted(cards, reverse=True)[:5]
         best_hand_ranks = [c.rank for c in best_hand]
-        return (
+        return HandRanking(
             1,
             tuple(best_hand_ranks),
             tuple([best_hand[0]]),

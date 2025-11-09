@@ -2,7 +2,7 @@ from card import Card
 from itertools import combinations
 import pandas as pd
 from scipy.stats import entropy
-from table import Table
+from table import Table, HandRanking
 from dataclasses import dataclass
 
 @dataclass
@@ -107,11 +107,11 @@ class Solver:
         for player, hole in self.hole_cards.items():
             # adds the player name, hand rank, tie breaker list, and best hand
             player_hand = phase_eval.table.rank_hand(hole)
-            current_player_ranks.append((player, *player_hand))
+            current_player_ranks.append((player, player_hand.rank, player_hand.tie_breakers, player_hand.best_hand))
             
             # Collect cards used in current phase (exclude flush hands)
-            if player_hand[0] != 6:  # Not a flush
-                cards_used_current_phase.update(set(player_hand[2]))
+            if player_hand.rank != 6:  # Not a flush
+                cards_used_current_phase.update(set(player_hand.best_hand))
 
         # Accumulate cards used across all phases
         if phase_eval.prev_cards_used is not None:
@@ -267,10 +267,10 @@ class Solver:
         """
         if current_guess is None:
             current_guess = self.maxh_table
-        if not getattr(self, "possible_rivers", None):
+        if not getattr(self, "valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if not isinstance(current_guess, Table) and not current_guess.flop and not current_guess.turn and not current_guess.river:
-            raise ValueError("Current guess must be a Table object.")
+        if not isinstance(current_guess, Table) or not current_guess.flop or not current_guess.turn or not current_guess.river:
+            raise ValueError("Current guess must be a complete Table object with flop, turn, and river.")
         if not isinstance(table_colors, list) or len(table_colors) != 5:
             raise ValueError(
                 "Table colors must be a list of 5 colors for each card in the table."
@@ -361,20 +361,20 @@ class Solver:
 
         # Calculate hand ranks for flop
         flop_table = Table(*list(table.flop))
-        p1_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
-        p2_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
-        p3_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
+        p1_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P1"]).rank] + "\033[0m"
+        p2_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P2"]).rank] + "\033[0m"
+        p3_flop = hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P3"]).rank] + "\033[0m"
         
         # Calculate hand ranks for turn
         turn_table = Table(*list(table.flop), table.turn)
-        p1_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
-        p2_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
-        p3_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
+        p1_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P1"]).rank] + "\033[0m"
+        p2_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P2"]).rank] + "\033[0m"
+        p3_turn = hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P3"]).rank] + "\033[0m"
         
         # Calculate hand ranks for river (full table)
-        p1_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P1"])[0]] + "\033[0m"
-        p2_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P2"])[0]] + "\033[0m"
-        p3_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P3"])[0]] + "\033[0m"
+        p1_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P1"]).rank] + "\033[0m"
+        p2_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P2"]).rank] + "\033[0m"
+        p3_river = hand_rank_symbols[table.rank_hand(self.hole_cards["P3"]).rank] + "\033[0m"
 
         # Format table cards for display
 
