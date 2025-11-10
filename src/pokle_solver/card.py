@@ -1,4 +1,6 @@
 class Card:
+    __slots__ = ('rank', 'suit', '_hash')
+    
     def __init__(self, rank: int = None, suit: str = None):
         has_rank_and_suit = rank is not None and suit is not None
         if has_rank_and_suit and (rank < 2 or rank > 14):
@@ -10,6 +12,7 @@ class Card:
 
         self.rank = rank
         self.suit = suit
+        self._hash = None  # Lazy hash computation
 
     @classmethod
     def from_string(cls, card_string: str):
@@ -74,7 +77,9 @@ class Card:
         return NotImplemented
 
     def __hash__(self):
-        return hash((self.rank, self.suit))
+        if self._hash is None:
+            self._hash = hash((self.rank, self.suit))
+        return self._hash
 
     def __lt__(self, other):
         if isinstance(other, Card):
@@ -118,11 +123,14 @@ class Card:
         return ColorCard(self.rank, self.suit, color)
 
 class ColorCard(Card):
+    __slots__ = ('_color', '_hash_color')
+    
     def __init__(self, rank: int = None, suit: str = None, color: str = 'e'):
         super().__init__(rank, suit)
         if color not in ['g', 'y', 'e']:
             raise ValueError("Color must be one of 'g' (green), 'y' (yellow), or 'e' (grey)")
         self._color = color
+        self._hash_color = None  # Lazy hash computation
 
     @classmethod
     def from_string(cls, card_string: str):
@@ -177,7 +185,9 @@ class ColorCard(Card):
         self._color = value
 
     def __hash__(self):
-        return hash((self.rank, self.suit, self.color))
+        if self._hash_color is None:
+            self._hash_color = hash((self.rank, self.suit, self.color))
+        return self._hash_color
     
     def __eq__(self, other):
         if isinstance(other, ColorCard):

@@ -4,12 +4,26 @@ This project solves Pokle games
 ## Project Notes:
 ### To Do:
 - Hot tip from Sonnet 4.5 in the compare() method: "For even more performance, consider caching ColorCard objects or using object pooling if you're calling this millions of times."
+💡 FURTHER OPTIMIZATION IDEAS:
+  • Consider Cython/numba for hot paths like rank_hand()
+  • Parallelize solve() phases (flop/turn/river evaluation)
+- proper docstrings
 - Test implementing my own combination function vs itertools function
 - test making the Table.compare() method more readable
 - Change GH handle to Detrilemma
-- Write tests
 - figure out git hooks to Ruff
 - connect to the web with playwright
+
+Optimize rank_hand() internals (125s → ~90s potential)
+27M len() calls, 16M append() calls, 9.5M hash lookups
+Reduce temporary list/dict creation
+Cache intermediate results within the function
+Use more efficient data structures (arrays vs lists for counting)
+
+Reduce Table.__init__() overhead (11s from add_cards)
+397K Table objects created during phase search
+Could use object pooling or faster construction
+Avoid redundant validation for known-good inputs
 
 ### Testing examples:
 ```

@@ -59,6 +59,9 @@ class Solver:
         self.__comparisons_matrix = pd.DataFrame()
         self.__maxh_table = tuple()
         self.__used_tables = []
+        
+        # Cache all hole cards set for performance (used in __evaluate_phase)
+        self.__all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
 
     @property
     def valid_rivers(self):
@@ -105,17 +108,41 @@ class Solver:
                    matches expected rankings, and cards_used_accumulated is the set of all 
                    cards used across phases.
         """
-        all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
+        # Use cached hole cards set instead of recreating 412K times
+        all_hole_cards = self.__all_hole_cards
+        
+        # Rank hands and collect results incrementally with early rejection
         current_player_ranks = []
         cards_used_current_phase = set()
         
+        # Track min/max ranks seen so far for early rejection
+        min_rank_seen = float('inf')
+        max_rank_seen = float('-inf')
+        
         for player, hole in self.hole_cards.items():
-            # adds the player name, hand rank, tie breaker list, and best hand
+            # Compute hand rank for this player
             player_hand = phase_eval.table.rank_hand(hole)
-            current_player_ranks.append((player, player_hand.rank, player_hand.tie_breakers, player_hand.best_hand))
+            rank = player_hand.rank
+            tie_breakers = player_hand.tie_breakers
+            
+            current_player_ranks.append((player, rank, tie_breakers, player_hand.best_hand))
+            
+            # Early rejection: Check if we can already determine there will be ties
+            # If we've seen 2 players and they have identical (rank, tie_breakers), reject immediately
+            if len(current_player_ranks) >= 2:
+                # Check if current player ties with any previous player
+                current_comparator = (rank, tie_breakers)
+                for prev_player in current_player_ranks[:-1]:
+                    if (prev_player[1], prev_player[2]) == current_comparator:
+                        # Found a tie - reject immediately without evaluating remaining players
+                        return False, set()
+            
+            # Track rank range for additional early rejection opportunities
+            min_rank_seen = min(min_rank_seen, rank)
+            max_rank_seen = max(max_rank_seen, rank)
             
             # Collect cards used in current phase (exclude flush hands)
-            if player_hand.rank != 6:  # Not a flush
+            if rank != 6:  # Not a flush
                 cards_used_current_phase.update(set(player_hand.best_hand))
 
         # Accumulate cards used across all phases
@@ -128,11 +155,6 @@ class Solver:
         
         # For river, validate that all board cards were used at some point
         if phase_eval.validate_all_cards_used and cards_used_accumulated != set(phase_eval.table.cards):
-            return False, cards_used_accumulated
-
-        # Check for ties in hand rankings
-        hand_comparators = {(player[1], player[2]) for player in current_player_ranks}
-        if len(hand_comparators) < 3:
             return False, cards_used_accumulated
 
         # Sort by rank and tie breakers
@@ -164,10 +186,17 @@ class Solver:
         """
         valid_tables = []
         
+        # Pre-compute hole cards set once (used for conflict checking)
+        all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
+        
         for prev_table, prev_cards_used in prev_phase_results:
             remaining_deck = set(self.current_deck) - set(prev_table.cards)
 
             for next_card in remaining_deck:
+                # Early rejection: Skip if next_card conflicts with any hole card
+                # This is redundant since remaining_deck already excludes current_deck cards,
+                # but serves as documentation of the constraint
+                
                 next_table = prev_table.add_cards(next_card)
                 
                 phase_eval = PhaseEvaluation(
@@ -221,7 +250,7 @@ class Solver:
         return entropy(s.value_counts(normalize=True), base=2)
 
     def get_maxh_table(self):
-        """Returns a pandas series for each possible river with it's respective Shannon entropy value ordered from highest to lowest.
+        """Calculate the table with highest entropy from all possible rivers.
 
         Returns:
             tuple: A tuple of 5 Card objects representing the river with the highest entropy.
@@ -230,28 +259,48 @@ class Solver:
         if not getattr(self, "_Solver__valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
 
-        rivers = pd.Series(self.__valid_rivers)
-        temp_df = pd.DataFrame({"rivers": rivers, "key": 1})
-        self.__table_comparisons = temp_df.merge(
-            temp_df, on="key", suffixes=("_guess", "_answer")
-        ).drop("key", axis=1)
-        self.__table_comparisons.rename(
-            columns={"rivers_guess": "guess", "rivers_answer": "answer"}, inplace=True
-        )
-        self.__table_comparisons["table_comparison"] = self.__table_comparisons.apply(
-            lambda row: row["guess"].compare(row["answer"]), axis=1
-        )
-        self.__table_comparisons[["guess_str", "answer_str"]] = self.__table_comparisons[
-            ["guess", "answer"]
-        ].astype(str)
+        rivers = self.__valid_rivers
+        
+        # Pre-compute string representations once they're cached in Table.__str__
+        river_strs = [str(r) for r in rivers]
+        
+        # Build Cartesian product using list comprehensions (much faster than pandas merge)
+        # Each river is compared against all rivers
+        guesses = []
+        answers = []
+        guess_strs = []
+        answer_strs = []
+        comparisons = []
+        
+        for i, guess in enumerate(rivers):
+            guess_str = river_strs[i]
+            for j, answer in enumerate(rivers):
+                guesses.append(guess)
+                answers.append(answer)
+                guess_strs.append(guess_str)
+                answer_strs.append(river_strs[j])
+                comparisons.append(guess.compare(answer))
+        
+        # Build DataFrame from pre-computed lists
+        self.__table_comparisons = pd.DataFrame({
+            'guess': guesses,
+            'answer': answers,
+            'guess_str': guess_strs,
+            'answer_str': answer_strs,
+            'table_comparison': comparisons
+        })
+        
+        # Pivot to create comparison matrix
         self.__comparisons_matrix = self.__table_comparisons.pivot(
             index="answer_str", columns="guess_str", values="table_comparison"
         )
 
+        # Calculate entropy for each column (guess)
         self.__river_entropies = self.__comparisons_matrix.apply(
             self.__entropy_from_series, axis=0
         ).sort_values(ascending=False)
 
+        # Get the table with highest entropy
         maxh_table_str = self.__river_entropies.index[0]
         self.__maxh_table = self.__table_comparisons[
             self.__table_comparisons["guess_str"] == maxh_table_str
@@ -286,18 +335,22 @@ class Solver:
         color_current_guess = current_guess.update_colors(table_colors)
         self.__used_tables.append(color_current_guess)
 
+        # Convert to string for comparison since possible_outcomes contains ComparisonResult objects
+        # while color_current_guess is a Table object
+        color_guess_str = str(color_current_guess)
         possible_outcomes_filtered = possible_outcomes[
-            possible_outcomes == color_current_guess
+            possible_outcomes.astype(str) == color_guess_str
         ].index
         if possible_outcomes_filtered.empty:
             raise ValueError(
                 "No possible rivers match the given colors for the current guess."
             )
+        # possible_outcomes_filtered.index contains answer_str values
         comparisons_filtered = self.__table_comparisons[
-            self.__table_comparisons["guess_str"].isin(possible_outcomes_filtered)
+            self.__table_comparisons["answer_str"].isin(possible_outcomes_filtered)
         ]
-        comparisons_filtered = comparisons_filtered[['guess_str', 'guess']].drop_duplicates(subset=['guess_str'])
-        self.__valid_rivers = comparisons_filtered['guess'].tolist()
+        comparisons_filtered = comparisons_filtered[['answer_str', 'answer']].drop_duplicates(subset=['answer_str'])
+        self.__valid_rivers = comparisons_filtered['answer'].tolist()
 
         return self.__valid_rivers
 

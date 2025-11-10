@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 # Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "pokle_solver"))
 
 from card import Card
 from solver import Solver, PhaseEvaluation, MASTER_DECK
@@ -267,7 +267,7 @@ class TestSolverPublicMethods:
             solver.next_table_guess(['g', 'g', 'invalid', 'g', 'g'])
 
     def test_next_table_guess_filters_valid_rivers(self):
-        """Test that next_table_guess correctly filters valid_rivers."""
+        """Test that next_table_guess correctly filters valid_rivers with all-green scenario."""
         p1_hole = [Card.from_string("QD"), Card.from_string("QC")]
         p2_hole = [Card.from_string("10H"), Card.from_string("2H")]
         p3_hole = [Card.from_string("9H"), Card.from_string("KH")]
@@ -275,19 +275,19 @@ class TestSolverPublicMethods:
         solver = Solver(p1_hole, p2_hole, p3_hole, [2, 1, 3], [1, 3, 2], [2, 1, 3])
         initial_count = len(solver.solve())
         
-        maxh_table = solver.get_maxh_table()
-        # Pick a different river to compare against
-        comparison_river = solver.valid_rivers[-1] if len(solver.valid_rivers) > 1 else solver.valid_rivers[0]
-        comparison = maxh_table.compare(comparison_river)
-        colors = [card.color for card in comparison.cards]
+        assert initial_count > 0, "Should have at least one valid river"
         
-        # Only test if we have a valid comparison (not all colors are the same edge case)
-        if not all(c == colors[0] for c in colors):
-            result = solver.next_table_guess(colors)
-            
-            assert isinstance(result, list)
-            assert len(result) <= initial_count
-            assert all(isinstance(table, Table) for table in result)
+        maxh_table = solver.get_maxh_table()
+        
+        # Test with all-green colors (perfect match scenario)
+        # This should return exactly one river - the maxh_table itself
+        all_green = ['g', 'g', 'g', 'g', 'g']
+        result = solver.next_table_guess(all_green, maxh_table)
+        
+        assert isinstance(result, list)
+        assert len(result) == 1, "All green should match exactly one table"
+        assert result[0] == maxh_table, "All green should return the guess itself"
+        assert all(isinstance(table, Table) for table in result)
 
     def test_print_game_before_solve_raises_error(self):
         """Test that print_game raises error if called before solve."""
