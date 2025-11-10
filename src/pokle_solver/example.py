@@ -10,14 +10,14 @@ def profile():
     # turn = [2, 3, 1]
     # river = [3, 2, 1]
 
-    # slow output for testing
-    p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
-    p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
-    p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
+    # # slow output for testing
+    # p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
+    # p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
+    # p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
 
-    flop = [2, 3, 1]
-    turn = [3, 2, 1]
-    river = [3, 1, 2]
+    # flop = [2, 3, 1]
+    # turn = [3, 2, 1]
+    # river = [3, 1, 2]
 
     # fast example
     # p1_hole = [Card.from_string("QD"), Card.from_string("QC")]
@@ -27,6 +27,15 @@ def profile():
     # flop = [2, 1, 3]
     # turn = [1, 3, 2]
     # river = [2, 1, 3]
+
+    #  super slow output for testing
+    p1_hole = [Card.from_string("JH"), Card.from_string("6H")]
+    p2_hole = [Card.from_string("4H"), Card.from_string("7S")]
+    p3_hole = [Card.from_string("5D"), Card.from_string("8D")]
+
+    flop = [3, 2, 1]
+    turn = [2, 3, 1]
+    river = [2, 1, 3]
 
 
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
@@ -44,13 +53,13 @@ def sandbox():
     # river = [3, 2, 1]
 
     # slow output for testing
-    p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
-    p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
-    p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
+    # p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
+    # p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
+    # p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
 
-    flop = [2, 3, 1]
-    turn = [3, 2, 1]
-    river = [3, 1, 2]
+    # flop = [2, 3, 1]
+    # turn = [3, 2, 1]
+    # river = [3, 1, 2]
 
     # fast example
     # p1_hole = [Card.from_string("QD"), Card.from_string("QC")]
@@ -60,6 +69,15 @@ def sandbox():
     # flop = [2, 1, 3]
     # turn = [1, 3, 2]
     # river = [2, 1, 3]
+
+    #  super slow output for testing
+    p1_hole = [Card.from_string("JH"), Card.from_string("6H")]
+    p2_hole = [Card.from_string("4H"), Card.from_string("7S")]
+    p3_hole = [Card.from_string("5D"), Card.from_string("8D")]
+
+    flop = [3, 2, 1]
+    turn = [2, 3, 1]
+    river = [2, 1, 3]
 
 
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
@@ -139,5 +157,5 @@ def demo():
             print(f"Error: {e}")
 
 if __name__ == "__main__":
-    profile()
+    sandbox()
     
