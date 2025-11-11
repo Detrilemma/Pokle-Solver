@@ -1,50 +1,149 @@
 from __future__ import annotations
-from card import *
-from collections import defaultdict
+from card import Card, ColorCard
 from dataclasses import dataclass
 from functools import cache
 
+
 @dataclass
 class HandRanking:
-    """Result of evaluating a poker hand."""
+    """Result of evaluating a poker hand.
+
+    Represents the strength of a poker hand with sufficient information to
+    determine winners in showdowns. Used for comparing hands and determining
+    which player has the best hand at each game phase.
+
+    Attributes:
+        rank (int): Numerical rank of hand type (1=high card, 2=pair, 3=two pair,
+                   4=three of a kind, 5=straight, 6=flush, 7=full house,
+                   8=four of a kind, 9=straight flush)
+        tie_breakers (tuple): Tuple of card ranks for breaking ties between hands
+                             of the same type, ordered by importance
+        best_hand (tuple): The 5 Card objects that form the best possible hand
+
+    Examples:
+        >>> HandRanking(rank=2, tie_breakers=(10, 14, 13, 12), best_hand=(...))  # Pair of 10s
+        >>> HandRanking(rank=9, tie_breakers=(14,), best_hand=(...))  # Royal flush
+    """
+
     rank: int  # Numerical rank (1=high card, 2=pair, ..., 9=straight flush)
     tie_breakers: tuple  # Tuple of ranks for tie-breaking
     best_hand: tuple  # Tuple of Card objects in the best 5-card hand
 
 
 class ComparisonResult:
-    """Lightweight result of comparing two Tables.
-    
-    This is used instead of creating a full Table object for comparison results,
-    avoiding validation overhead and improving performance.
+    """Lightweight result of comparing two Tables with color-coded feedback.
+
+    Represents the result of comparing a guess Table to an answer Table,
+    showing which cards match (green), partially match (yellow), or don't
+    match (grey). This is optimized for performance by avoiding the overhead
+    of creating a full Table object.
+
+    ComparisonResult is immutable and uses __slots__ for memory efficiency.
+
+    Attributes:
+        cards (tuple): Tuple of 5 ColorCard objects representing the comparison
+                      result for each card in the table (flop + turn + river)
+
+    Examples:
+        >>> # Green = exact match, Yellow = partial match, Grey = no match
+        >>> result = ComparisonResult([ColorCard(10, 'H', 'g'), ...])
+        >>> str(result)  # "10H_g KD_y AS_e 7C_e 4S_y"
     """
-    __slots__ = ('_cards', '_str_cache')
-    
+
+    __slots__ = ("_cards", "_str_cache")
+
     def __init__(self, cards: list):
         """Initialize with a list of ColorCards.
-        
+
         Args:
-            cards: List of ColorCard objects representing the comparison
+            cards (list): List of ColorCard objects representing the comparison result.
+
+        Examples:
+            >>> cards = [ColorCard(10, 'H', 'g'), ColorCard(14, 'D', 'y')]
+            >>> result = ComparisonResult(cards)
         """
         self._cards = tuple(cards)
         self._str_cache = None
-    
+
     @property
     def cards(self):
+        """Get the tuple of ColorCards in this comparison result.
+
+        Returns:
+            tuple: Tuple of ColorCard objects.
+
+        Examples:
+            >>> result = ComparisonResult([ColorCard(10, 'H', 'g')])
+            >>> result.cards
+            (ColorCard(rank=10, suit='H', color='g'),)
+        """
         return self._cards
-    
+
     def __str__(self):
+        """Return a space-separated string representation of all cards.
+
+        Returns:
+            str: Cards separated by spaces (e.g., "10H_g KD_y AS_e").
+
+        Examples:
+            >>> result = ComparisonResult([ColorCard(10, 'H', 'g'), ColorCard(13, 'D', 'y')])
+            >>> str(result)
+            '10H_g KD_y'
+        """
         if self._str_cache is None:
             self._str_cache = " ".join(str(card) for card in self._cards)
         return self._str_cache
-    
+
     def __repr__(self):
+        """Return a formal string representation of the ComparisonResult.
+
+        Returns:
+            str: String like "ComparisonResult(ColorCard(...), ColorCard(...))".
+
+        Examples:
+            >>> result = ComparisonResult([ColorCard(10, 'H', 'g')])
+            >>> repr(result)
+            "ComparisonResult(ColorCard(rank=10, suit='H', color='g'))"
+        """
         return f"ComparisonResult({', '.join(repr(card) for card in self._cards)})"
 
 
 class Table:
-    __slots__ = ('_cards', '_flop', '_turn', '_river', '_str_cache')
-    
+    """Represents a poker board state (flop, turn, and/or river cards).
+
+    A Table represents the community cards in a poker game, consisting of:
+    - Flop: First 3 cards (required)
+    - Turn: 4th card (optional)
+    - River: 5th card (optional)
+
+    Tables are immutable and optimized for performance using __slots__.
+    They support comparison operations to generate color-coded feedback for
+    the Pokle guessing game, and can evaluate poker hand rankings when combined
+    with player hole cards.
+
+    Attributes:
+        cards (tuple): All cards in the table (3-5 cards)
+        flop (frozenset): The first 3 cards (immutable set)
+        turn (Card | None): The 4th card, or None if not set
+        river (Card | None): The 5th card, or None if not set
+
+    Examples:
+        >>> # Create a table with just the flop
+        >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+
+        >>> # Create a complete table (flop + turn + river)
+        >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'),
+        ...               Card(13, 'C'), Card(4, 'H'))
+
+        >>> # Add cards to an existing table
+        >>> new_table = table.add_cards(Card(13, 'C'))
+
+        >>> # Compare two tables (for Pokle game)
+        >>> result = guess_table.compare(answer_table)  # Returns ComparisonResult
+    """
+
+    __slots__ = ("_cards", "_flop", "_turn", "_river", "_str_cache")
+
     def __init__(self, *cards: Card, _skip_validation: bool = False):
         # If a single tuple/list is passed, unpack it
         if len(cards) == 1 and isinstance(cards[0], (tuple, list)):
@@ -52,7 +151,7 @@ class Table:
         else:
             # Multiple positional arguments
             cards_tuple = cards
-        
+
         # Skip validation when called from trusted internal methods
         if not _skip_validation:
             # Validate all items are Card objects
@@ -60,27 +159,73 @@ class Table:
                 raise ValueError("All items must be Card objects")
             if len(cards_tuple) < 3 or len(cards_tuple) > 5:
                 raise ValueError("Table must have between 3 and 5 cards")
-        
-        self._cards = cards_tuple if isinstance(cards_tuple, tuple) else tuple(cards_tuple)
+
+        self._cards = (
+            cards_tuple if isinstance(cards_tuple, tuple) else tuple(cards_tuple)
+        )
         self._flop = frozenset(self._cards[:3])
         self._turn = self._cards[3] if len(self._cards) >= 4 else None
         self._river = self._cards[4] if len(self._cards) == 5 else None
-        
+
         # Cache string representation for performance (called millions of times)
         self._str_cache = None
 
     def __repr__(self):
+        """Return a formal string representation of the Table.
+
+        Returns:
+            str: String like "Table(Card(...), Card(...), ...)".
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> repr(table)
+            "Table(Card(rank=10, suit='H'), ...)"
+        """
         return "Table(" + ", ".join(repr(card) for card in self.cards) + ")"
-    
+
     def __str__(self):
+        """Return a space-separated string of all cards.
+
+        Returns:
+            str: Cards separated by spaces (e.g., "10H AD 7S").
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> str(table)
+            '10H AD 7S'
+        """
         if self._str_cache is None:
             self._str_cache = " ".join(str(card) for card in self.cards)
         return self._str_cache
-    
+
     def pstr(self):
+        """Return a pretty-printed colored string of all cards.
+
+        Returns:
+            str: ANSI colored string representation.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> table.pstr()  # Returns colored output
+        """
         return " ".join(card.pstr() for card in self.cards)
-    
+
     def __eq__(self, value):
+        """Check if two Tables are equal.
+
+        Args:
+            value: Object to compare with.
+
+        Returns:
+            bool: True if flop, turn, and river all match.
+            NotImplemented: If value is not a Table.
+
+        Examples:
+            >>> t1 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> t2 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> t1 == t2
+            True
+        """
         if not isinstance(value, Table):
             return NotImplemented
         is_flop_eq = self.flop == value.flop
@@ -89,52 +234,116 @@ class Table:
         return is_flop_eq and is_turn_eq and is_river_eq
 
     def __ne__(self, value):
+        """Check if two Tables are not equal.
+
+        Args:
+            value: Object to compare with.
+
+        Returns:
+            bool: True if flop, turn, or river differ.
+            NotImplemented: If value is not a Table.
+
+        Examples:
+            >>> t1 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> t2 = Table(Card(10, 'H'), Card(14, 'D'), Card(8, 'S'))
+            >>> t1 != t2
+            True
+        """
         if not isinstance(value, Table):
             return NotImplemented
         is_flop_eq = self.flop == value.flop
         is_turn_eq = self.turn == value.turn
         is_river_eq = self.river == value.river
         return not (is_flop_eq and is_turn_eq and is_river_eq)
-    
+
     @property
     def cards(self):
+        """Get all cards in the table.
+
+        Returns:
+            tuple: Tuple of 3-5 Card objects.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> table.cards
+            (Card(rank=10, suit='H'), Card(rank=14, suit='D'), Card(rank=7, suit='S'))
+        """
         return self._cards
-    
+
     @property
     def flop(self):
+        """Get the flop cards (first 3 cards).
+
+        Returns:
+            frozenset: Immutable set of the first 3 cards.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> table.flop
+            frozenset({Card(rank=10, suit='H'), ...})
+        """
         return self._flop
-    
+
     @property
     def turn(self):
+        """Get the turn card (4th card).
+
+        Returns:
+            Card | None: The 4th card, or None if not set.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'), Card(13, 'C'))
+            >>> table.turn
+            Card(rank=13, suit='C')
+        """
         return self._turn
-    
+
     @property
     def river(self):
+        """Get the river card (5th card).
+
+        Returns:
+            Card | None: The 5th card, or None if not set.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'), Card(13, 'C'), Card(4, 'H'))
+            >>> table.river
+            Card(rank=4, suit='H')
+        """
         return self._river
 
     def add_cards(self, *cards):
         """Add one or more cards to the table and return a new Table.
-        
+
         Args:
-            *cards: Card objects or a single list/tuple of Cards
-        
+            *cards: Card objects or a single list/tuple of Cards.
+
         Returns:
             Table: A new Table instance with the added cards.
+
+        Raises:
+            ValueError: If cards are not Card objects or total exceeds 5.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> new_table = table.add_cards(Card(13, 'C'))
+            >>> len(new_table.cards)
+            4
         """
         # Handle both single card and iterable
         if len(cards) == 1 and isinstance(cards[0], (tuple, list)):
             new_cards = cards[0]
         else:
             new_cards = cards
-        
+
         # Validate
         if not all(isinstance(card, Card) for card in new_cards):
             raise ValueError("All items must be Card objects")
-        
+
         total_cards = self.cards + tuple(new_cards)
         if len(total_cards) > 5:
             raise ValueError("Table cannot have more than 5 cards")
-        
+
         # Skip validation in __init__ since we already validated
         return Table(total_cards, _skip_validation=True)
 
@@ -142,17 +351,28 @@ class Table:
     @cache
     def __compare_flop(self_flop: list, other_flop: frozenset) -> list:
         """Compare two flops and return a list of ColorCards indicating matches.
-        
+
         Args:
-            self_flop: List of Card objects in this Table's flop (ordered, first 3 cards)
-            other_flop: Frozenset of Card objects in the other Table's flop
+            self_flop (list): List of Card objects in this Table's flop (ordered, first 3 cards).
+            other_flop (frozenset): Frozenset of Card objects in the other Table's flop.
+
         Returns:
-            list: List of ColorCard objects representing the comparison
+            list: List of 3 ColorCard objects with colors indicating matches:
+                  'g' = exact match, 'y' = partial match (rank or suit), 'e' = no match.
+
+        Examples:
+            >>> flop1 = [Card(10, 'H'), Card(14, 'D'), Card(7, 'S')]
+            >>> flop2 = frozenset([Card(10, 'H'), Card(13, 'D'), Card(8, 'S')])
+            >>> result = Table.__compare_flop(tuple(flop1), flop2)
+            >>> result[0].color  # 10H exact match
+            'g'
+            >>> result[1].color  # AD partial match (D suit)
+            'y'
         """
         # Convert tuple to frozenset for set operations
         self_flop_set = frozenset(self_flop)
         green_flop_cards = self_flop_set & other_flop
-        
+
         # Build lookup sets for remaining (non-green) cards
         other_remaining = other_flop - green_flop_cards
         other_ranks = {card.rank for card in other_remaining}
@@ -161,117 +381,157 @@ class Table:
         # Iterate over tuple to maintain card order
         for card in self_flop:
             if card in green_flop_cards:
-                color_cards.append(ColorCard(card.rank, card.suit, 'g'))
+                color_cards.append(ColorCard(card.rank, card.suit, "g"))
             elif card.rank in other_ranks or card.suit in other_suits:
-                color_cards.append(ColorCard(card.rank, card.suit, 'y'))
+                color_cards.append(ColorCard(card.rank, card.suit, "y"))
             else:
-                color_cards.append(ColorCard(card.rank, card.suit, 'e'))
+                color_cards.append(ColorCard(card.rank, card.suit, "e"))
 
         return color_cards
-    
+
     @staticmethod
     @cache
     def __compare_single_card(self_card: Card, other_card: Card) -> ColorCard:
         """Compare two single cards and return a ColorCard indicating the match.
-        
+
         Args:
-            self_card: Card object in this Table
-            other_card: Card object in the other Table
+            self_card (Card): Card object in this Table.
+            other_card (Card): Card object in the other Table.
+
         Returns:
-            ColorCard: ColorCard representing the comparison
+            ColorCard: ColorCard with color indicating match:
+                      'g' = exact match, 'y' = partial match (rank or suit), 'e' = no match.
+
+        Examples:
+            >>> result = Table.__compare_single_card(Card(13, 'C'), Card(13, 'C'))
+            >>> result.color
+            'g'
+            >>> result = Table.__compare_single_card(Card(13, 'C'), Card(13, 'H'))
+            >>> result.color
+            'y'
         """
         s_rank, s_suit = self_card.rank, self_card.suit
         o_rank, o_suit = other_card.rank, other_card.suit
-        
+
         if s_rank == o_rank and s_suit == o_suit:
-            return ColorCard(s_rank, s_suit, 'g')
+            return ColorCard(s_rank, s_suit, "g")
         elif s_rank == o_rank or s_suit == o_suit:
-            return ColorCard(s_rank, s_suit, 'y')
+            return ColorCard(s_rank, s_suit, "y")
         else:
-            return ColorCard(s_rank, s_suit, 'e')
-    
+            return ColorCard(s_rank, s_suit, "e")
+
     def compare(self, other: Table) -> ComparisonResult:
-        """Compare this Table with another Table and return a ComparisonResult with ColorCards indicating matches.
-        
+        """Compare this Table with another Table and return a ComparisonResult with ColorCards.
+
         Args:
-            other: The Table to compare against
-        
+            other (Table): The Table to compare against (usually the answer table).
+
         Returns:
-            ComparisonResult: A lightweight object containing ColorCards ('g'=green, 'y'=yellow, 'e'=grey)
+            ComparisonResult: A lightweight object containing ColorCards where:
+                             'g' (green) = exact match
+                             'y' (yellow) = partial match (rank or suit matches)
+                             'e' (grey) = no match
+
+        Raises:
+            ValueError: If other is not a Table or if tables have different lengths.
+
+        Examples:
+            >>> guess = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> answer = Table(Card(10, 'H'), Card(13, 'D'), Card(8, 'S'))
+            >>> result = guess.compare(answer)
+            >>> result.cards[0].color  # 10H is exact match
+            'g'
+            >>> result.cards[1].color  # AD has D suit match
+            'y'
         """
         if not isinstance(other, Table):
             raise ValueError("other must be an instance of Table")
         if len(self.cards) != len(other.cards):
-            raise ValueError("Both tables must have the same number of cards to compare")
-        
+            raise ValueError(
+                "Both tables must have the same number of cards to compare"
+            )
+
         # Get a COPY of the cached list to avoid mutating the cache
         color_cards = list(self.__compare_flop(self.cards[:3], other.flop))
-        
+
         if self.turn and other.turn:
             color_cards.append(self.__compare_single_card(self.turn, other.turn))
-            
+
         if self.river and other.river:
             color_cards.append(self.__compare_single_card(self.river, other.river))
-            
+
         return ComparisonResult(color_cards)
 
     def update_colors(self, colors: list[str]) -> Table:
         """Create a new Table with updated card colors.
 
         Args:
-            colors (list[str]): A list of color codes ('g', 'y', 'e') corresponding to each card.
-        
+            colors (list[str]): List of color codes ('g', 'y', 'e') for each card.
+
         Returns:
-            Table: A new Table instance with updated ColorCards.
+            Table: New Table instance with ColorCards instead of Cards.
+
+        Raises:
+            ValueError: If colors length doesn't match cards or contains invalid colors.
+
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
+            >>> colored = table.update_colors(['g', 'y', 'e'])
+            >>> colored.cards[0]
+            ColorCard(rank=10, suit='H', color='g')
         """
         if len(colors) != len(self.cards):
-            raise ValueError("Length of colors list must match number of cards in the table")
-        if not all(color in ['g', 'y', 'e'] for color in colors):
+            raise ValueError(
+                "Length of colors list must match number of cards in the table"
+            )
+        if not all(color in ["g", "y", "e"] for color in colors):
             raise ValueError("Colors must be one of 'g', 'y', or 'e'")
 
         updated_cards = [
             ColorCard(card.rank, card.suit, color)
             for card, color in zip(self.cards, colors)
         ]
-        
+
         return Table(updated_cards)
-    
+
     def rank_hand(self, hole: list) -> HandRanking:
-        """Ranks the hand of a given list of cards.
+        """Evaluate the best 5-card poker hand from hole cards and table cards.
 
         Args:
-            cards (list): A list of Card objects.
+            hole (list): List of 2 Card objects (player's hole cards).
 
         Returns:
-            HandRanking: A dataclass containing:
-                rank (int): Numerical rank of the hand (1-9, where 9 is Straight Flush)
-                tie_breakers (tuple): tuple of ranks used for tie-breaking
-                best_hand (tuple): Tuple of Card objects representing the best hand
+            HandRanking: Dataclass containing:
+                - rank (int): Hand type (1=high card ... 9=straight flush)
+                - tie_breakers (tuple): Ranks for breaking ties
+                - best_hand (tuple): Best 5 Card objects
 
-        Example:
-            cards = [Card(10, 'H'), Card('J', 'H'), Card('Q', 'H'), Card('K', 'H'), Card('A', 'H')]
-            result = self.rank_hands(cards)
-            print(result.rank)  # Output: 9 (Straight Flush)
-            print(result.tie_breakers)  # Output: (14,) (Ace)
-            print(result.best_hand)  # Output: (10H, JH, QH, KH, AH)
+        Examples:
+            >>> table = Table(Card(10, 'H'), Card(11, 'H'), Card(12, 'H'))
+            >>> hole = [Card(13, 'H'), Card(14, 'H')]
+            >>> ranking = table.rank_hand(hole)
+            >>> ranking.rank
+            9  # Straight flush
+            >>> ranking.tie_breakers
+            (14,)  # Ace-high
         """
         cards = hole + list(self.cards)
-        
+
         # Count occurrences of each rank and group cards by suit in single pass
         # Use lists for rank_groups instead of defaultdict(list) to reduce overhead
         rank_groups = {}
         suit_groups = {}
-        
+
         for card in cards:
             rank = card.rank
             suit = card.suit
-            
+
             # Manually manage dict entries to avoid defaultdict overhead
             if rank in rank_groups:
                 rank_groups[rank].append(card)
             else:
                 rank_groups[rank] = [card]
-            
+
             if suit in suit_groups:
                 suit_groups[suit].append(card)
             else:
@@ -282,7 +542,9 @@ class Table:
         for suit, suited_cards in suit_groups.items():
             suited_count = len(suited_cards)
             if suited_count >= 5:
-                flush_cards = sorted(suited_cards, key=lambda card: card.rank, reverse=True)
+                flush_cards = sorted(
+                    suited_cards, key=lambda card: card.rank, reverse=True
+                )
                 break
 
         # Check for straight - pre-sort ranks once
@@ -300,16 +562,23 @@ class Table:
         if not straight_high_card:
             # Use a set for faster membership testing
             ranks_set = set(ranks)
-            if 14 in ranks_set and 5 in ranks_set and 4 in ranks_set and 3 in ranks_set and 2 in ranks_set:
+            if (
+                14 in ranks_set
+                and 5 in ranks_set
+                and 4 in ranks_set
+                and 3 in ranks_set
+                and 2 in ranks_set
+            ):
                 straight_high_card = 5
 
         # Check for straight flush
         if flush_cards and straight_high_card:
             flush_ranks = [c.rank for c in flush_cards]
             flush_ranks_set = set(flush_ranks)  # Use set for faster membership
-            
+
             best_hand = [
-                c for c in flush_cards
+                c
+                for c in flush_cards
                 if straight_high_card >= c.rank >= straight_high_card - 4
             ][:5]
 
@@ -321,19 +590,25 @@ class Table:
                     if r not in flush_ranks_set:
                         has_straight_flush = False
                         break
-                
+
                 if has_straight_flush:
                     return HandRanking(9, (straight_high_card,), tuple(best_hand))
 
             # A-5-4-3-2 straight flush
-            elif 14 in flush_ranks_set and 5 in flush_ranks_set and 4 in flush_ranks_set and 3 in flush_ranks_set and 2 in flush_ranks_set:
+            elif (
+                14 in flush_ranks_set
+                and 5 in flush_ranks_set
+                and 4 in flush_ranks_set
+                and 3 in flush_ranks_set
+                and 2 in flush_ranks_set
+            ):
                 return HandRanking(9, (5,), tuple(best_hand))
 
         # Pre-compute group sizes to avoid repeated len() calls
         three_ranks = []
         pair_ranks = []
         four_rank = None
-        
+
         for rank, group in rank_groups.items():
             group_len = len(group)
             if group_len == 4:
@@ -353,7 +628,7 @@ class Table:
         if (three_ranks and pair_ranks) or len(three_ranks) > 1:
             max_three = max(three_ranks)
             three_of_a_kind = rank_groups[max_three]
-            
+
             if pair_ranks:
                 max_pair_rank = max(pair_ranks)
                 pair = rank_groups[max_pair_rank]
@@ -362,7 +637,7 @@ class Table:
                 second_three = rank_groups[min_three]
                 pair = second_three[:2]
                 max_pair_rank = pair[0].rank
-            
+
             best_hand = three_of_a_kind + pair
             return HandRanking(7, (max_three, max_pair_rank), tuple(best_hand))
 
@@ -377,10 +652,16 @@ class Table:
             if straight_high_card == 5:  # A-5-4-3-2
                 best_hand = [c for c in cards if c.rank in (14, 5, 4, 3, 2)]
                 # Sort to ensure proper order
-                best_hand.sort(key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True)
+                best_hand.sort(
+                    key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                )
             else:
                 best_hand = sorted(
-                    [c for c in cards if straight_high_card >= c.rank >= straight_high_card - 4],
+                    [
+                        c
+                        for c in cards
+                        if straight_high_card >= c.rank >= straight_high_card - 4
+                    ],
                     reverse=True,
                 )
             return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
@@ -404,7 +685,11 @@ class Table:
             two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
             remaining = sorted(set(cards) - set(two_pair), reverse=True)
             remaining_rank = remaining[0].rank if remaining else 0
-            return HandRanking(3, tuple([pair_ranks[0], pair_ranks[1], remaining_rank]), tuple(two_pair))
+            return HandRanking(
+                3,
+                tuple([pair_ranks[0], pair_ranks[1], remaining_rank]),
+                tuple(two_pair),
+            )
 
         # Check for one pair
         if pair_ranks:
