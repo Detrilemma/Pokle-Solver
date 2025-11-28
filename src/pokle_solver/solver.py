@@ -323,7 +323,8 @@ class Solver:
             turns, self.river_hand_ranks, validate_all_cards_used=True
         )
 
-    def __entropy_from_series(self, s: pd.Series):
+    @staticmethod
+    def __entropy_from_series(s: pd.Series):
         """Calculates the Shannon entropy from a pandas series.
 
         Args:
@@ -467,8 +468,6 @@ class Solver:
             guess_entropy = entropy(result_counts, base=2)
 
             entropies[str(guess)] = (guess_entropy, guess)
-
-        print()  # New line after progress
 
         # Find guess with maximum entropy
         max_entropy_str = max(entropies.keys(), key=lambda k: entropies[k][0])

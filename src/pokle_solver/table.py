@@ -50,62 +50,61 @@ class ComparisonResult:
         >>> str(result)  # "10H_g KD_y AS_e 7C_e 4S_y"
     """
 
-    __slots__ = ("_cards", "_str_cache")
+    __slots__ = ("_cards", "_str_cache", "_hash_cache", "_canonical")
 
     def __init__(self, cards: list):
-        """Initialize with a list of ColorCards.
-
-        Args:
-            cards (list): List of ColorCard objects representing the comparison result.
-
-        Examples:
-            >>> cards = [ColorCard(10, 'H', 'g'), ColorCard(14, 'D', 'y')]
-            >>> result = ComparisonResult(cards)
-        """
         self._cards = tuple(cards)
         self._str_cache = None
+        self._hash_cache = None
+        # Pre-compute canonical form (sorted flop + remaining) once
+        self._canonical = tuple(sorted(self._cards[:3])) + self._cards[3:]
 
     @property
     def cards(self):
-        """Get the tuple of ColorCards in this comparison result.
-
-        Returns:
-            tuple: Tuple of ColorCard objects.
-
-        Examples:
-            >>> result = ComparisonResult([ColorCard(10, 'H', 'g')])
-            >>> result.cards
-            (ColorCard(rank=10, suit='H', color='g'),)
-        """
         return self._cards
 
     def __str__(self):
-        """Return a space-separated string representation of all cards.
-
-        Returns:
-            str: Cards separated by spaces (e.g., "10H_g KD_y AS_e").
-
-        Examples:
-            >>> result = ComparisonResult([ColorCard(10, 'H', 'g'), ColorCard(13, 'D', 'y')])
-            >>> str(result)
-            '10H_g KD_y'
-        """
         if self._str_cache is None:
-            self._str_cache = " ".join(str(card) for card in self._cards)
+            self._str_cache = " ".join(str(card) for card in self._canonical)
         return self._str_cache
 
     def __repr__(self):
-        """Return a formal string representation of the ComparisonResult.
+        return f"ComparisonResult({', '.join(repr(card) for card in self._canonical)})"
 
-        Returns:
-            str: String like "ComparisonResult(ColorCard(...), ColorCard(...))".
+    def __hash__(self):
+        if self._hash_cache is None:
+            self._hash_cache = hash(self._canonical)
+        return self._hash_cache
 
-        Examples:
-            >>> result = ComparisonResult([ColorCard(10, 'H', 'g')])
-            >>> repr(result)
-            "ComparisonResult(ColorCard(rank=10, suit='H', color='g'))"
-        """
-        return f"ComparisonResult({', '.join(repr(card) for card in self._cards)})"
+    def __eq__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical == other._canonical
+        return NotImplemented
+
+    def __lt__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical < other._canonical
+        return NotImplemented
+
+    def __le__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical <= other._canonical
+        return NotImplemented
+
+    def __gt__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical > other._canonical
+        return NotImplemented
+
+    def __ge__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical >= other._canonical
+        return NotImplemented
+
+    def __ne__(self, other):
+        if isinstance(other, ComparisonResult):
+            return self._canonical != other._canonical
+        return NotImplemented
 
 
 class Table:
@@ -147,22 +146,21 @@ class Table:
     def __init__(self, *cards: Card, _skip_validation: bool = False):
         # If a single tuple/list is passed, unpack it
         if len(cards) == 1 and isinstance(cards[0], (tuple, list)):
-            cards_tuple = cards[0] if isinstance(cards[0], tuple) else tuple(cards[0])
+            cards_list = cards[0] if isinstance(cards[0], list) else list(cards[0])
         else:
             # Multiple positional arguments
-            cards_tuple = cards
+            cards_list = list(cards)
 
         # Skip validation when called from trusted internal methods
         if not _skip_validation:
             # Validate all items are Card objects
-            if not all(isinstance(card, Card) for card in cards_tuple):
+            if not all(isinstance(card, Card) for card in cards_list):
                 raise ValueError("All items must be Card objects")
-            if len(cards_tuple) < 3 or len(cards_tuple) > 5:
+            if len(cards_list) < 3 or len(cards_list) > 5:
                 raise ValueError("Table must have between 3 and 5 cards")
 
-        self._cards = (
-            cards_tuple if isinstance(cards_tuple, tuple) else tuple(cards_tuple)
-        )
+        self._cards = tuple(sorted(cards_list[:3]) + list(cards_list[3:]))  # Ensure flop is ordered
+        # self._cards = tuple(cards_list)
         self._flop = frozenset(self._cards[:3])
         self._turn = self._cards[3] if len(self._cards) >= 4 else None
         self._river = self._cards[4] if len(self._cards) == 5 else None
@@ -171,29 +169,9 @@ class Table:
         self._str_cache = None
 
     def __repr__(self):
-        """Return a formal string representation of the Table.
-
-        Returns:
-            str: String like "Table(Card(...), Card(...), ...)".
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> repr(table)
-            "Table(Card(rank=10, suit='H'), ...)"
-        """
         return "Table(" + ", ".join(repr(card) for card in self.cards) + ")"
 
     def __str__(self):
-        """Return a space-separated string of all cards.
-
-        Returns:
-            str: Cards separated by spaces (e.g., "10H AD 7S").
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> str(table)
-            '10H AD 7S'
-        """
         if self._str_cache is None:
             self._str_cache = " ".join(str(card) for card in self.cards)
         return self._str_cache
@@ -211,44 +189,14 @@ class Table:
         return " ".join(card.pstr() for card in self.cards)
 
     def __eq__(self, value):
-        """Check if two Tables are equal.
-
-        Args:
-            value: Object to compare with.
-
-        Returns:
-            bool: True if flop, turn, and river all match.
-            NotImplemented: If value is not a Table.
-
-        Examples:
-            >>> t1 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> t2 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> t1 == t2
-            True
-        """
         if not isinstance(value, Table):
             return NotImplemented
         is_flop_eq = self.flop == value.flop
         is_turn_eq = self.turn == value.turn
         is_river_eq = self.river == value.river
-        return is_flop_eq and is_turn_eq and is_river_eq
+        return (is_flop_eq and is_turn_eq and is_river_eq)
 
     def __ne__(self, value):
-        """Check if two Tables are not equal.
-
-        Args:
-            value: Object to compare with.
-
-        Returns:
-            bool: True if flop, turn, or river differ.
-            NotImplemented: If value is not a Table.
-
-        Examples:
-            >>> t1 = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> t2 = Table(Card(10, 'H'), Card(14, 'D'), Card(8, 'S'))
-            >>> t1 != t2
-            True
-        """
         if not isinstance(value, Table):
             return NotImplemented
         is_flop_eq = self.flop == value.flop
@@ -258,58 +206,18 @@ class Table:
 
     @property
     def cards(self):
-        """Get all cards in the table.
-
-        Returns:
-            tuple: Tuple of 3-5 Card objects.
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> table.cards
-            (Card(rank=10, suit='H'), Card(rank=14, suit='D'), Card(rank=7, suit='S'))
-        """
         return self._cards
 
     @property
     def flop(self):
-        """Get the flop cards (first 3 cards).
-
-        Returns:
-            frozenset: Immutable set of the first 3 cards.
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'))
-            >>> table.flop
-            frozenset({Card(rank=10, suit='H'), ...})
-        """
         return self._flop
 
     @property
     def turn(self):
-        """Get the turn card (4th card).
-
-        Returns:
-            Card | None: The 4th card, or None if not set.
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'), Card(13, 'C'))
-            >>> table.turn
-            Card(rank=13, suit='C')
-        """
         return self._turn
 
     @property
     def river(self):
-        """Get the river card (5th card).
-
-        Returns:
-            Card | None: The 5th card, or None if not set.
-
-        Examples:
-            >>> table = Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S'), Card(13, 'C'), Card(4, 'H'))
-            >>> table.river
-            Card(rank=4, suit='H')
-        """
         return self._river
 
     def add_cards(self, *cards):

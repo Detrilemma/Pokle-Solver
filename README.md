@@ -3,11 +3,11 @@ This project solves Pokle games
 
 ## Project Notes:
 ### To Do:
-- proper docstrings
 - walkthrough and understand the sampling mechanics
 - Change GH handle to Detrilemma
 - figure out git hooks to Ruff
 - connect to the web with playwright
+- have table inherit from ComparisonResult
 
 ### Testing examples:
 ```
