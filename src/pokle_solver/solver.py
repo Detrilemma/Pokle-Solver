@@ -1,10 +1,37 @@
-from card import Card
+import os
+# ARM64 LLVM optimization workaround
+# Use generic ARM64 target to avoid CPU-specific scheduling model bugs
+os.environ['NUMBA_CPU_NAME'] = 'generic'
+from card import Card, ColorCard
 from itertools import combinations
-import pandas as pd
 from scipy.stats import entropy
-from table import Table
 from dataclasses import dataclass
-import random
+from typing import Optional
+from numba import guvectorize, int8, int16
+import numpy as np
+import polars as pl
+
+
+@dataclass
+class HandRanking:
+    """Result of evaluating a poker hand.
+
+    Represents the strength of a poker hand with sufficient information to
+    determine winners in showdowns. Used for comparing hands and determining
+    which player has the best hand at each game phase.
+
+    Attributes:
+        rank (int): Numerical rank of hand type (1=high card, 2=pair, 3=two pair,
+                   4=three of a kind, 5=straight, 6=flush, 7=full house,
+                   8=four of a kind, 9=straight flush)
+        tie_breakers (tuple): Tuple of card ranks for breaking ties between hands
+                             of the same type, ordered by importance
+        best_hand (tuple): The 5 Card objects that form the best possible hand
+    """
+
+    rank: int  # Numerical rank (1=high card, 2=pair, ..., 9=straight flush)
+    tie_breakers: tuple  # Tuple of ranks for tie-breaking
+    best_hand: tuple  # Tuple of Card objects in the best 5-card hand
 
 
 @dataclass
@@ -12,11 +39,11 @@ class PhaseEvaluation:
     """Configuration for evaluating a poker game phase (flop, turn, or river).
 
     Contains all information needed to evaluate whether a specific board state
-    (table) matches the expected hand rankings for a given phase of the game.
+    matches the expected hand rankings for a given phase of the game.
     Used internally by the Solver to validate candidate board configurations.
 
     Attributes:
-        table (Table): The board state to evaluate
+        board (list): The board state to evaluate (list of Card objects)
         expected_rankings (list): Expected hand strength rankings for each player
                                  (list of 3 integers, permutation of [1, 2, 3])
         prev_cards_used (set | None): Set of cards already used in previous phases
@@ -24,15 +51,15 @@ class PhaseEvaluation:
 
     Examples:
         >>> phase = PhaseEvaluation(
-        ...     table=Table(Card(10, 'H'), Card(14, 'D'), Card(7, 'S')),
+        ...     board=[Card(10, 'H'), Card(14, 'D'), Card(7, 'S')],
         ...     expected_rankings=[2, 1, 3],  # P2 best, P1 second, P3 worst
         ...     prev_cards_used=set()
         ... )
     """
-
-    table: Table
+    board: list
     expected_rankings: list
-    prev_cards_used: set = None
+    prev_cards_used: Optional[set] = None
+    validate_all_cards_used: bool = False
     validate_all_cards_used: bool = False
 
 
@@ -125,11 +152,11 @@ class Solver:
 
         self.current_deck = MASTER_DECK.copy()
         self.__valid_rivers = []
-        self.__river_entropies = pd.Series()
-        self.__table_comparisons = pd.DataFrame()
-        self.__comparisons_matrix = pd.DataFrame()
-        self.__maxh_table = tuple()
+        self.__maxh_table = []
         self.__used_tables = []
+        
+        self.__compared_tables = pl.LazyFrame()
+        self.__rivers_dict = dict()
 
         # Cache all hole cards set for performance (used in __evaluate_phase)
         self.__all_hole_cards = {
@@ -138,10 +165,10 @@ class Solver:
 
     @property
     def valid_rivers(self):
-        """Get the list of valid river tables found by solve().
+        """Get the list of valid river boards found by solve().
 
         Returns:
-            list: List of Table objects representing all valid complete boards.
+            list: List of list[Card] representing all valid complete boards.
 
         Examples:
             >>> solver.solve()
@@ -150,11 +177,252 @@ class Solver:
         """
         return self.__valid_rivers
 
+    @staticmethod
+    def rank_hand(board: list, hole: list) -> HandRanking:
+        """Evaluate the best 5-card poker hand from hole cards and board cards.
+
+        Args:
+            board (list): List of Card objects on the board (3-5 cards).
+            hole (list): List of 2 Card objects (player's hole cards).
+
+        Returns:
+            HandRanking: Dataclass containing:
+                - rank (int): Hand type (1=high card ... 9=straight flush)
+                - tie_breakers (tuple): Ranks for breaking ties
+                - best_hand (tuple): Best 5 Card objects
+
+        Examples:
+            >>> board = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H')]
+            >>> hole = [Card(13, 'H'), Card(14, 'H')]
+            >>> ranking = Solver.rank_hand(board, hole)
+            >>> ranking.rank
+            9  # Straight flush
+            >>> ranking.tie_breakers
+            (14,)  # Ace-high
+        """
+        cards = hole + list(board)
+
+        # Count occurrences of each rank and group cards by suit in single pass
+        rank_groups = {}
+        suit_groups = {}
+
+        for card in cards:
+            rank = card.rank
+            suit = card.suit
+
+            if rank in rank_groups:
+                rank_groups[rank].append(card)
+            else:
+                rank_groups[rank] = [card]
+
+            if suit in suit_groups:
+                suit_groups[suit].append(card)
+            else:
+                suit_groups[suit] = [card]
+
+        # Check for flush
+        flush_cards = None
+        for suit, suited_cards in suit_groups.items():
+            suited_count = len(suited_cards)
+            if suited_count >= 5:
+                flush_cards = sorted(
+                    suited_cards, key=lambda card: card.rank, reverse=True
+                )
+                break
+
+        # Check for straight
+        ranks = sorted(set(card.rank for card in cards), reverse=True)
+        straight_high_card = None
+
+        # Standard straight check
+        ranks_len = len(ranks)
+        for i in range(ranks_len - 4):
+            if ranks[i] - ranks[i + 4] == 4:
+                straight_high_card = ranks[i]
+                break
+
+        # Special case for A-5-4-3-2 (Ace low straight)
+        if not straight_high_card:
+            ranks_set = set(ranks)
+            if (
+                14 in ranks_set
+                and 5 in ranks_set
+                and 4 in ranks_set
+                and 3 in ranks_set
+                and 2 in ranks_set
+            ):
+                straight_high_card = 5
+
+        # Check for straight flush
+        if flush_cards and straight_high_card:
+            flush_ranks = [c.rank for c in flush_cards]
+            flush_ranks_set = set(flush_ranks)
+
+            best_hand = [
+                c
+                for c in flush_cards
+                if straight_high_card >= c.rank >= straight_high_card - 4
+            ][:5]
+
+            if straight_high_card != 5:
+                has_straight_flush = True
+                for r in range(straight_high_card - 4, straight_high_card + 1):
+                    if r not in flush_ranks_set:
+                        has_straight_flush = False
+                        break
+
+                if has_straight_flush:
+                    return HandRanking(9, (straight_high_card,), tuple(best_hand))
+
+            elif (
+                14 in flush_ranks_set
+                and 5 in flush_ranks_set
+                and 4 in flush_ranks_set
+                and 3 in flush_ranks_set
+                and 2 in flush_ranks_set
+            ):
+                return HandRanking(9, (5,), tuple(best_hand))
+
+        # Pre-compute group sizes
+        three_ranks = []
+        pair_ranks = []
+        four_rank = None
+
+        for rank, group in rank_groups.items():
+            group_len = len(group)
+            if group_len == 4:
+                four_rank = rank
+                break
+            elif group_len == 3:
+                three_ranks.append(rank)
+            elif group_len == 2:
+                pair_ranks.append(rank)
+
+        # Check for four of a kind
+        if four_rank is not None:
+            four_of_a_kind = rank_groups[four_rank]
+            return HandRanking(8, (four_rank,), tuple(four_of_a_kind))
+
+        # Check for full house
+        if (three_ranks and pair_ranks) or len(three_ranks) > 1:
+            max_three = max(three_ranks)
+            three_of_a_kind = rank_groups[max_three]
+
+            if pair_ranks:
+                max_pair_rank = max(pair_ranks)
+                pair = rank_groups[max_pair_rank]
+            else:
+                min_three = min(three_ranks)
+                second_three = rank_groups[min_three]
+                pair = second_three[:2]
+                max_pair_rank = pair[0].rank
+
+            best_hand = three_of_a_kind + pair
+            return HandRanking(7, (max_three, max_pair_rank), tuple(best_hand))
+
+        # Check for flush
+        if flush_cards:
+            flush_card_hand = flush_cards[:5]
+            flush_card_hand_ranks = tuple(c.rank for c in flush_card_hand)
+            return HandRanking(6, flush_card_hand_ranks, tuple(flush_card_hand))
+
+        # Check for straight
+        if straight_high_card:
+            if straight_high_card == 5:
+                best_hand = [c for c in cards if c.rank in (14, 5, 4, 3, 2)]
+                best_hand.sort(
+                    key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                )
+            else:
+                best_hand = sorted(
+                    [
+                        c
+                        for c in cards
+                        if straight_high_card >= c.rank >= straight_high_card - 4
+                    ],
+                    reverse=True,
+                )
+            return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
+
+        # Check for three of a kind
+        if three_ranks:
+            max_three = max(three_ranks)
+            three_of_a_kind = rank_groups[max_three]
+            remaining = sorted(set(cards) - set(three_of_a_kind), reverse=True)
+            remaining_ranks = [c.rank for c in remaining[:2]]
+            return HandRanking(
+                4,
+                tuple([max_three] + remaining_ranks),
+                tuple(three_of_a_kind),
+            )
+
+        # Check for two pair
+        pair_ranks_len = len(pair_ranks)
+        if pair_ranks_len >= 2:
+            pair_ranks.sort(reverse=True)
+            two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
+            remaining = sorted(set(cards) - set(two_pair), reverse=True)
+            remaining_rank = remaining[0].rank if remaining else 0
+            return HandRanking(
+                3,
+                tuple([pair_ranks[0], pair_ranks[1], remaining_rank]),
+                tuple(two_pair),
+            )
+
+        # Check for one pair
+        if pair_ranks:
+            pair_rank = pair_ranks[0]
+            pair = rank_groups[pair_rank]
+            remaining = sorted(set(cards) - set(pair), reverse=True)
+            remaining_ranks = [c.rank for c in remaining[:3]]
+            return HandRanking(2, tuple([pair_rank] + remaining_ranks), tuple(pair))
+
+        # High card
+        best_hand = sorted(cards, reverse=True)[:5]
+        best_hand_ranks = tuple(c.rank for c in best_hand)
+        return HandRanking(
+            1,
+            best_hand_ranks,
+            tuple([best_hand[0]]),
+        )
+
+    @staticmethod
+    def update_colors(board: list, colors: list) -> list:
+        """Create a new board with ColorCards instead of Cards.
+
+        Args:
+            board (list): List of Card objects.
+            colors (list): List of color strings ('g', 'y', 'e') matching board length.
+
+        Returns:
+            list: New list with ColorCards instead of Cards.
+
+        Raises:
+            ValueError: If colors length doesn't match board or contains invalid colors.
+
+        Examples:
+            >>> board = [Card(10, 'H'), Card(14, 'D'), Card(7, 'S')]
+            >>> colored = Solver.update_colors(board, ['g', 'y', 'e'])
+            >>> colored[0]
+            ColorCard(rank=10, suit='H', color='g')
+        """
+        if len(colors) != len(board):
+            raise ValueError(
+                "Length of colors list must match number of cards in the board"
+            )
+        if not all(color in ["g", "y", "e"] for color in colors):
+            raise ValueError("Colors must be one of 'g', 'y', or 'e'")
+
+        return [
+            ColorCard(card.rank, card.suit, color)
+            for card, color in zip(board, colors)
+        ]
+
     def __possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
 
         Returns:
-            list: A list of tuples (table, cards_used_in_hands) where cards_used_in_hands
+            list: A list of tuples (board, cards_used_in_hands) where cards_used_in_hands
                   is a set of board cards used in any player's best hand at the flop.
         """
         hole_cards = {card for hole in self.hole_cards.values() for card in hole}
@@ -165,15 +433,15 @@ class Solver:
 
         valid_flops = []
         for flop in all_flops:
-            flop_table = Table(flop)
+            flop_board = list(flop)
 
             phase_eval = PhaseEvaluation(
-                table=flop_table, expected_rankings=self.flop_hand_ranks
+                board=flop_board, expected_rankings=self.flop_hand_ranks
             )
             is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
             if is_valid:
-                valid_flops.append((flop_table, cards_used))
+                valid_flops.append((flop_board, cards_used))
 
         return valid_flops
 
@@ -202,7 +470,7 @@ class Solver:
 
         for player, hole in self.hole_cards.items():
             # Compute hand rank for this player
-            player_hand = phase_eval.table.rank_hand(hole)
+            player_hand = Solver.rank_hand(phase_eval.board, hole)
             rank = player_hand.rank
             tie_breakers = player_hand.tie_breakers
 
@@ -240,7 +508,7 @@ class Solver:
 
         # For river, validate that all board cards were used at some point
         if phase_eval.validate_all_cards_used and cards_used_accumulated != set(
-            phase_eval.table.cards
+            phase_eval.board
         ):
             return False, cards_used_accumulated
 
@@ -261,33 +529,26 @@ class Solver:
         expected_rankings: list,
         validate_all_cards_used: bool = False,
     ):
-        """Helper method to find valid tables for the next phase (turn or river).
+        """Helper method to find valid boards for the next phase (turn or river).
 
         Args:
-            prev_phase_results (list): List of tuples (table, cards_used) from previous phase.
+            prev_phase_results (list): List of tuples (board, cards_used) from previous phase.
             expected_rankings (list): Expected hand rankings for this phase.
             validate_all_cards_used (bool): Whether to validate all cards were used.
 
         Returns:
-            list: List of tuples (table, cards_used_accumulated) for valid combinations.
+            list: List of tuples (board, cards_used_accumulated) for valid combinations.
         """
         valid_tables = []
 
-        # Pre-compute hole cards set once (used for conflict checking)
-        # all_hole_cards = {card for hole in self.hole_cards.values() for card in hole}
-
-        for prev_table, prev_cards_used in prev_phase_results:
-            remaining_deck = set(self.current_deck) - set(prev_table.cards)
+        for prev_board, prev_cards_used in prev_phase_results:
+            remaining_deck = set(self.current_deck) - set(prev_board)
 
             for next_card in remaining_deck:
-                # Early rejection: Skip if next_card conflicts with any hole card
-                # This is redundant since remaining_deck already excludes current_deck cards,
-                # but serves as documentation of the constraint
-
-                next_table = prev_table.add_cards(next_card)
+                next_board = prev_board + [next_card]
 
                 phase_eval = PhaseEvaluation(
-                    table=next_table,
+                    board=next_board,
                     expected_rankings=expected_rankings,
                     prev_cards_used=prev_cards_used,
                     validate_all_cards_used=validate_all_cards_used,
@@ -295,7 +556,7 @@ class Solver:
                 is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
                 if is_valid:
-                    valid_tables.append((next_table, cards_used))
+                    valid_tables.append((next_board, cards_used))
 
         return valid_tables
 
@@ -303,10 +564,10 @@ class Solver:
         """Find all possible turns that maintain the current player rankings.
 
         Args:
-            flops (list): A list of tuples (table, cards_used) from flop phase.
+            flops (list): A list of tuples (board, cards_used) from flop phase.
 
         Returns:
-            list: A list of tuples (table, cards_used_accumulated) for valid turn combinations.
+            list: A list of tuples (board, cards_used_accumulated) for valid turn combinations.
         """
         return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
 
@@ -314,28 +575,70 @@ class Solver:
         """Find all possible rivers that maintain the current player rankings.
 
         Args:
-            turns (list): A list of tuples (table, cards_used) from turn phase.
+            turns (list): A list of tuples (board, cards_used) from turn phase.
 
         Returns:
-            list: A list of tuples (table, cards_used_accumulated) for valid river combinations.
+            list: A list of tuples (board, cards_used_accumulated) for valid river combinations.
         """
         return self.__find_valid_next_phase(
             turns, self.river_hand_ranks, validate_all_cards_used=True
         )
 
     @staticmethod
-    def __entropy_from_series(s: pd.Series):
-        """Calculates the Shannon entropy from a pandas series.
-
+    @guvectorize(
+        [(int8[:, :], int8[:, :], int16[:])],  # type signature: 2D inputs, 1D output
+        '(n,m),(n,m)->(n)',                        # shape signature: batch processing
+        nopython=True
+    )
+    def __compare_boards(guess_indices, answer_indices, result):
+        """Compare batches of poker boards and return color-coded results.
+        
         Args:
-            s (pd.Series): A pandas series. Each value in the series represents a category.
-
-        Returns:
-            float: The Shannon entropy of the series.
+            guess_indices: 2D array of shape (n, 5) - n boards with 5 cards each
+            answer_indices: 2D array of shape (n, 5) - n boards with 5 cards each
+            result: 1D output array of shape (n,) - encoded color codes for each board
         """
-        return entropy(s.value_counts(normalize=True), base=2)
+        n_boards = guess_indices.shape[0]
+        for board_idx in range(n_boards):
+            guess_board = guess_indices[board_idx]
+            guess_ranks = guess_board // 4
+            guess_suits = guess_board % 4
+            answer_board = answer_indices[board_idx]
+            answer_ranks = answer_board // 4
+            answer_suits = answer_board % 4
+            flop_answer_ranks = answer_ranks[:3]
+            flop_answer_suits = answer_suits[:3]
+            answer_flop = answer_board[:3]
 
-    def get_maxh_table(self, max_sample_size=1000, use_sampling=None):
+            colors = [0, 0, 0, 0, 0]  # default to grey
+            for i in range(3):
+                if guess_board[i] in answer_flop:
+                    colors[i] = 2  # green
+                    answer_i = np.flatnonzero(answer_flop == guess_board[i])[0]
+                    flop_answer_ranks[answer_i] = -1  # mark as used
+                    flop_answer_suits[answer_i] = -1  # mark as used
+                elif guess_ranks[i] in flop_answer_ranks or guess_suits[i] in flop_answer_suits:
+                    colors[i] = 1  # yellow
+                else:
+                    colors[i] = 0  # grey
+
+            for i in range(3, 5):
+                if guess_board[i] == answer_board[i]:
+                    colors[i] = 2  # green
+                elif guess_ranks[i] == answer_ranks[i] or guess_suits[i] == answer_suits[i]:
+                    colors[i] = 1  # yellow
+                else:
+                    colors[i] = 0  # grey
+
+            place_multiplier = 100_000
+            result_value = 0
+            for color in colors:
+                place_multiplier //= 10
+                result_value += color * place_multiplier
+            
+            result[board_idx] = result_value
+
+    def get_maxh_table(self):
         """Calculate the table with highest entropy from all possible rivers.
 
         For large river sets (>1000), uses sampling to approximate entropy efficiently.
@@ -353,134 +656,59 @@ class Solver:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
 
         rivers = self.__valid_rivers
-        n_rivers = len(rivers)
 
-        # Auto-decide whether to use sampling
-        if use_sampling is None:
-            use_sampling = n_rivers > 1000
-
-        if use_sampling:
-            return self.__get_maxh_table_sampled(max_sample_size)
-        else:
-            return self.__get_maxh_table_exact()
-
-    def __get_maxh_table_exact(self):
-        """Original exact entropy calculation (O(n²) complexity).
-
-        Use only for small river sets (<1000 rivers).
-        """
-        rivers = self.__valid_rivers
-
-        # Pre-compute string representations once they're cached in Table.__str__
-        river_strs = [str(r) for r in rivers]
-
-        # Build Cartesian product using list comprehensions (much faster than pandas merge)
-        # Each river is compared against all rivers
-        guesses = []
-        answers = []
-        guess_strs = []
-        answer_strs = []
-        comparisons = []
-
-        for i, guess in enumerate(rivers):
-            guess_str = river_strs[i]
-            for j, answer in enumerate(rivers):
-                guesses.append(guess)
-                answers.append(answer)
-                guess_strs.append(guess_str)
-                answer_strs.append(river_strs[j])
-                comparisons.append(guess.compare(answer))
-
-        # Build DataFrame from pre-computed lists
-        self.__table_comparisons = pd.DataFrame(
-            {
-                "guess": guesses,
-                "answer": answers,
-                "guess_str": guess_strs,
-                "answer_str": answer_strs,
-                "table_comparison": comparisons,
-            }
+        rivers_str = [" ".join(str(card) for card in river) for river in rivers]
+        rivers_index = [[card.card_index for card in river] for river in rivers]
+        
+        self.__rivers_dict = dict(zip(rivers_str, rivers))
+        
+        rivers_lf = pl.DataFrame(
+            {"rivers_str": rivers_str, "rivers_index": rivers_index},
+            schema={"rivers_str": pl.Utf8, "rivers_index": pl.Array(pl.Int8, 5)}
+        ).lazy()
+        self.__compared_tables = rivers_lf.join(rivers_lf, how="cross", suffix="_answer")
+        
+        # For Array columns, we need to convert to numpy arrays for guvectorize
+        self.__compared_tables = self.__compared_tables.with_columns(
+            pl.struct(["rivers_index", "rivers_index_answer"]).map_batches(
+                lambda batch: pl.Series(
+                    "comparison",
+                    Solver.__compare_boards(  # type: ignore
+                        batch.struct.field("rivers_index").to_numpy().reshape(-1, 5).astype(np.int8),
+                        batch.struct.field("rivers_index_answer").to_numpy().reshape(-1, 5).astype(np.int8)
+                    )
+                ),
+                return_dtype=pl.Int16
+            ).alias("comparison")
         )
 
-        # Pivot to create comparison matrix
-        self.__comparisons_matrix = self.__table_comparisons.pivot(
-            index="answer_str", columns="guess_str", values="table_comparison"
+        # Groups by guess river string and aggregates comparison results into lists
+        rivers_grouped = self.__compared_tables.group_by("rivers_str").agg(
+            pl.col("comparison").alias("comparison_list")
         )
 
-        # Calculate entropy for each column (guess)
-        self.__river_entropies = self.__comparisons_matrix.apply(
-            self.__entropy_from_series, axis=0
-        ).sort_values(ascending=False)
+        # Calculate probabilities of each comparison result
+        rivers_grouped = rivers_grouped.with_columns(
+            pl.col("comparison_list").list.eval(
+                pl.element().value_counts(normalize=True).struct.field("proportion")
+            ).list.eval(
+                pl.element().map_batches(
+                    lambda s: entropy(s, base=2),
+                    returns_scalar=True,
+                    return_dtype=pl.Float64
+                )
+            ).list.first().alias("entropy")
+        )
+        entropy_df = rivers_grouped.select(["rivers_str", "entropy"]).collect()
+        max_entropy_river = entropy_df.filter(
+            pl.col("entropy") == pl.col("entropy").max()
+        ).select("rivers_str").row(0)[0]
 
-        # Get the table with highest entropy
-        maxh_table_str = self.__river_entropies.index[0]
-        self.__maxh_table = self.__table_comparisons[
-            self.__table_comparisons["guess_str"] == maxh_table_str
-        ]["guess"].iloc[0]
+        self.__maxh_table = self.__rivers_dict[max_entropy_river]
 
         return self.__maxh_table
 
-    def __get_maxh_table_sampled(self, max_sample_size=1000):
-        """Optimized entropy calculation using sampling (O(n) complexity).
-
-        For large river sets, samples a subset of answers for each guess to approximate
-        entropy. This provides ~99% accuracy with massive speedup.
-
-        Args:
-            max_sample_size (int): Maximum number of answers to sample per guess
-
-        Returns:
-            Table: The river with the highest (approximate) entropy
-        """
-        rivers = self.__valid_rivers
-        n_rivers = len(rivers)
-
-        # Determine sample size (use all if fewer than max_sample_size)
-        sample_size = min(max_sample_size, n_rivers)
-
-        # For candidate selection, we can test all rivers or sample candidates too
-        # For now, test all rivers as potential guesses (can optimize further if needed)
-        guess_candidates = rivers
-
-        # If we have too many candidates, sample them too
-        max_candidates = 500  # Only evaluate entropy for top 500 candidates
-        if len(guess_candidates) > max_candidates:
-            # Sample diverse candidates (stratified by card ranks/suits)
-            guess_candidates = random.sample(guess_candidates, max_candidates)
-
-        # Calculate entropy for each guess candidate
-        entropies = {}
-
-        for guess_idx, guess in enumerate(guess_candidates):
-            # Sample answers for this guess
-            if sample_size < n_rivers:
-                answer_sample = random.sample(rivers, sample_size)
-            else:
-                answer_sample = rivers
-
-            # Compare guess against sampled answers
-            comparison_results = []
-            for answer in answer_sample:
-                comparison_results.append(str(guess.compare(answer)))
-
-            # Calculate entropy from comparison distribution
-            result_counts = pd.Series(comparison_results).value_counts(normalize=True)
-            guess_entropy = entropy(result_counts, base=2)
-
-            entropies[str(guess)] = (guess_entropy, guess)
-
-        # Find guess with maximum entropy
-        max_entropy_str = max(entropies.keys(), key=lambda k: entropies[k][0])
-        max_entropy, self.__maxh_table = entropies[max_entropy_str]
-
-        # Store results for compatibility with existing code
-        self.__river_entropies = pd.Series(
-            {k: v[0] for k, v in entropies.items()}
-        ).sort_values(ascending=False)
-
-        return self.__maxh_table
-
-    def next_table_guess(self, table_colors: list, current_guess: Table = None):
+    def next_table_guess(self, table_colors: list, current_guess: list | None = None):
         """Filter valid rivers based on color feedback from the current guess.
 
         Updates the internal list of valid rivers to only include those that
@@ -490,7 +718,7 @@ class Solver:
         Args:
             table_colors (list): List of 5 color strings for each card:
                                 'g' = green, 'y' = yellow, 'e' = grey.
-            current_guess (Table, optional): The table being guessed. Defaults to maxh_table.
+            current_guess (list, optional): The board being guessed (5 cards). Defaults to maxh_table.
 
         Returns:
             list: Filtered list of valid rivers matching the color feedback.
@@ -508,65 +736,42 @@ class Solver:
         """
         if current_guess is None:
             current_guess = self.__maxh_table
+        
+        # Validate state
         if not getattr(self, "_Solver__valid_rivers", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if (
-            not isinstance(current_guess, Table)
-            or not current_guess.flop
-            or not current_guess.turn
-            or not current_guess.river
-        ):
+        if not isinstance(current_guess, list) or len(current_guess) != 5:
             raise ValueError(
-                "Current guess must be a complete Table object with flop, turn, and river."
+                "Current guess must be a list of 5 Card objects (complete board)."
             )
         if not isinstance(table_colors, list) or len(table_colors) != 5:
             raise ValueError(
                 "Table colors must be a list of 5 colors for each card in the table."
             )
+        
 
-        # Build comparison data for the current guess if not available
-        # This handles the case where get_maxh_table used sampling and didn't create the full matrix
-        if (
-            not hasattr(self, "_Solver__comparisons_matrix")
-            or str(current_guess) not in self.__comparisons_matrix.columns
-        ):
-            # Compare current guess against all valid rivers
-            print(
-                f"Computing comparisons for guess against {len(self.__valid_rivers)} possible answers..."
-            )
-            comparisons = []
-            answer_strs = []
 
-            for answer in self.__valid_rivers:
-                comparisons.append(current_guess.compare(answer))
-                answer_strs.append(str(answer))
+        #TODO: ensure proper validation for the self.__tables_compared variable
 
-            # Create a temporary comparison series for this guess
-            possible_outcomes = pd.Series(comparisons, index=answer_strs)
-        else:
-            possible_outcomes = self.__comparisons_matrix[str(current_guess)]
 
-        color_current_guess = current_guess.update_colors(table_colors)
-        self.__used_tables.append(color_current_guess)
+        color_int_dict = {"e":0, "y":1, "g":2}
+        place_multiplier = 100_000
+        result_value = 0
+        for color in table_colors:
+            place_multiplier //= 10
+            result_value += color_int_dict[color] * place_multiplier
 
-        # Convert to string for comparison since possible_outcomes contains ComparisonResult objects
-        # while color_current_guess is a Table object
-        color_guess_str = str(color_current_guess)
-        possible_outcomes_filtered = possible_outcomes[
-            possible_outcomes.astype(str) == color_guess_str
-        ].index
-        if possible_outcomes_filtered.empty:
-            raise ValueError(
-                "No possible rivers match the given colors for the current guess."
-            )
+        guess_str = " ".join(str(card) for card in current_guess)
 
-        # Filter valid_rivers to only those that match
-        # possible_outcomes_filtered.index contains answer_str values
-        answer_strs_set = set(possible_outcomes_filtered)
-        self.__valid_rivers = [
-            river for river in self.__valid_rivers if str(river) in answer_strs_set
-        ]
-
+        self.__compared_tables = self.__compared_tables.filter(
+            pl.col("rivers_str") == guess_str   
+        )
+        self.__compared_tables = self.__compared_tables.filter(
+            pl.col("comparison") == result_value
+        )
+        valid_rivers_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
+        valid_rivers_str = pl.Series(valid_rivers_df).to_list()
+        self.__valid_rivers = [self.__rivers_dict[r] for r in valid_rivers_str]
         return self.__valid_rivers
 
     def solve(self):
@@ -577,7 +782,7 @@ class Solver:
         the primary method to call after initializing the Solver.
 
         Returns:
-            list: List of valid Table objects (complete 5-card boards).
+            list: List of valid boards (list[Card] with 5 cards each).
 
         Examples:
             >>> solver = Solver(p1hole, p2hole, p3hole, [2,1,3], [1,2,3], [1,2,3])
@@ -589,8 +794,8 @@ class Solver:
         turns = self.__possible_turns(flops)
         river_results = self.__possible_rivers(turns)
 
-        # Extract just the tables (drop the cards_used metadata)
-        self.__valid_rivers = [table for table, _ in river_results]
+        # Extract just the boards (drop the cards_used metadata)
+        self.__valid_rivers = [board for board, _ in river_results]
 
         return self.__valid_rivers
 
@@ -615,19 +820,19 @@ class Solver:
         enum_rankings.sort(key=lambda x: x[1])  # Sort by player number
         return [place for place, _ in enum_rankings]
 
-    def print_game(self, table: Table, is_win: bool = False):
+    def print_game(self, board: list, is_win: bool = False):
         """Print a formatted game state display with hand rankings and board cards.
 
         Shows player hole cards, hand strengths at each phase (flop/turn/river),
-        and the current table being evaluated. Uses colored output to highlight
+        and the current board being evaluated. Uses colored output to highlight
         rankings and cards.
 
         Args:
-            table (Table): The table to display.
+            board (list): The board to display (list of 5 Card objects).
             is_win (bool, optional): Whether this is the final winning guess. Defaults to False.
 
         Raises:
-            ValueError: If solve() hasn't been called, table is invalid, or not in valid_rivers.
+            ValueError: If solve() hasn't been called, board is invalid, or not in valid_rivers.
 
         Examples:
             >>> solver.solve()
@@ -640,10 +845,10 @@ class Solver:
         """
         if not self.__valid_rivers:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if not isinstance(table, Table):
-            raise ValueError("Table must be an instance of the Table class.")
-        if table not in self.__valid_rivers:
-            raise ValueError("Provided table is not in the list of possible rivers.")
+        if not isinstance(board, list) or len(board) != 5:
+            raise ValueError("Board must be a list of 5 Card objects.")
+        if board not in self.__valid_rivers:
+            raise ValueError("Provided board is not in the list of possible rivers.")
 
         hand_rank_symbols = {
             1: "HC",
@@ -666,51 +871,51 @@ class Solver:
         p3_1 = self.hole_cards["P3"][1].pstr().ljust(3)
 
         # Calculate hand ranks for flop
-        flop_table = Table(*list(table.flop))
+        flop_board = board[:3]
         p1_flop = (
-            hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P1"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P1"]).rank]
             + "\033[0m"
         )
         p2_flop = (
-            hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P2"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P2"]).rank]
             + "\033[0m"
         )
         p3_flop = (
-            hand_rank_symbols[flop_table.rank_hand(self.hole_cards["P3"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P3"]).rank]
             + "\033[0m"
         )
 
         # Calculate hand ranks for turn
-        turn_table = Table(*list(table.flop), table.turn)
+        turn_board = board[:4]
         p1_turn = (
-            hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P1"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P1"]).rank]
             + "\033[0m"
         )
         p2_turn = (
-            hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P2"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P2"]).rank]
             + "\033[0m"
         )
         p3_turn = (
-            hand_rank_symbols[turn_table.rank_hand(self.hole_cards["P3"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P3"]).rank]
             + "\033[0m"
         )
 
-        # Calculate hand ranks for river (full table)
+        # Calculate hand ranks for river (full board)
         p1_river = (
-            hand_rank_symbols[table.rank_hand(self.hole_cards["P1"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P1"]).rank] + "\033[0m"
         )
         p2_river = (
-            hand_rank_symbols[table.rank_hand(self.hole_cards["P2"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P2"]).rank] + "\033[0m"
         )
         p3_river = (
-            hand_rank_symbols[table.rank_hand(self.hole_cards["P3"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P3"]).rank] + "\033[0m"
         )
 
         # Format table cards for display
 
-        flop_places = self.__player_hand_place(self.flop_hand_ranks)
-        turn_places = self.__player_hand_place(self.turn_hand_ranks)
-        river_places = self.__player_hand_place(self.river_hand_ranks)
+        flop_places = Solver.__player_hand_place(self.flop_hand_ranks)
+        turn_places = Solver.__player_hand_place(self.turn_hand_ranks)
+        river_places = Solver.__player_hand_place(self.river_hand_ranks)
         bg_colors = {
             1: "\033[48;2;255;215;0m",
             2: "\033[48;2;192;192;192m",
@@ -734,16 +939,16 @@ class Solver:
         )
         print("|-----flop----|-turn|river|")
         for t in self.__used_tables:
-            c_flop_cards = [card.pstr().ljust(3) for card in t.cards[:3]]
-            c_turn_card = t.turn.pstr().ljust(3)
-            c_river_card = t.river.pstr().ljust(3)
+            c_flop_cards = [card.pstr().ljust(3) for card in t[:3]]
+            c_turn_card = t[3].pstr().ljust(3)
+            c_river_card = t[4].pstr().ljust(3)
             print(
                 f"| {c_flop_cards[0]} {c_flop_cards[1]} {c_flop_cards[2]} | {c_turn_card} | {c_river_card} |"
             )
         if not is_win:
-            flop_cards = [card.pstr().ljust(3) for card in table.cards[:3]]
-            turn_card = table.turn.pstr().ljust(3)
-            river_card = table.river.pstr().ljust(3)
+            flop_cards = [card.pstr().ljust(3) for card in board[:3]]
+            turn_card = board[3].pstr().ljust(3)
+            river_card = board[4].pstr().ljust(3)
             print(
                 f"| {flop_cards[0]} {flop_cards[1]} {flop_cards[2]} | {turn_card} | {river_card} |"
             )
