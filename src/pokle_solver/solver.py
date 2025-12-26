@@ -386,38 +386,6 @@ class Solver:
             tuple([best_hand[0]]),
         )
 
-    @staticmethod
-    def update_colors(board: list, colors: list) -> list:
-        """Create a new board with ColorCards instead of Cards.
-
-        Args:
-            board (list): List of Card objects.
-            colors (list): List of color strings ('g', 'y', 'e') matching board length.
-
-        Returns:
-            list: New list with ColorCards instead of Cards.
-
-        Raises:
-            ValueError: If colors length doesn't match board or contains invalid colors.
-
-        Examples:
-            >>> board = [Card(10, 'H'), Card(14, 'D'), Card(7, 'S')]
-            >>> colored = Solver.update_colors(board, ['g', 'y', 'e'])
-            >>> colored[0]
-            ColorCard(rank=10, suit='H', color='g')
-        """
-        if len(colors) != len(board):
-            raise ValueError(
-                "Length of colors list must match number of cards in the board"
-            )
-        if not all(color in ["g", "y", "e"] for color in colors):
-            raise ValueError("Colors must be one of 'g', 'y', or 'e'")
-
-        return [
-            ColorCard(card.rank, card.suit, color)
-            for card, color in zip(board, colors)
-        ]
-
     def __possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
 
@@ -749,10 +717,29 @@ class Solver:
                 "Table colors must be a list of 5 colors for each card in the table."
             )
         
+        # Validate internal compared tables before filtering
+        # Use explicit `is None` check to avoid evaluating a LazyFrame in boolean context
+        if getattr(self, "_Solver__compared_tables", None) is None:
+            raise ValueError(
+                "Comparison table not initialized. Call get_maxh_table() before next_table_guess()."
+            )
 
+        comp_tables = self.__compared_tables
+        if not isinstance(comp_tables, pl.LazyFrame):
+            raise TypeError("Internal __compared_tables must be a polars LazyFrame.")
 
-        #TODO: ensure proper validation for the self.__tables_compared variable
+        # Safely obtain column names; collecting a LazyFrame is used only as a fallback 
+        try:
+            # Use collect_schema().names() to read column names without full collection
+            cols = comp_tables.collect_schema().names()
+        except Exception:
+            # Fallback: collect the frame and read columns (more expensive)
+            cols = list(comp_tables.collect().columns)
 
+        required_cols = {"rivers_str", "comparison", "rivers_str_answer"}
+        missing = required_cols - set(cols)
+        if missing:
+            raise ValueError(f"__compared_tables missing required columns: {sorted(missing)}")
 
         color_int_dict = {"e":0, "y":1, "g":2}
         place_multiplier = 100_000
@@ -763,16 +750,27 @@ class Solver:
 
         guess_str = " ".join(str(card) for card in current_guess)
 
-        self.__compared_tables = self.__compared_tables.filter(
-            pl.col("rivers_str") == guess_str   
+        compared_tables = self.__compared_tables.filter(
+            (pl.col("rivers_str") == guess_str) & (pl.col("comparison") == result_value)
         )
-        self.__compared_tables = self.__compared_tables.filter(
-            pl.col("comparison") == result_value
-        )
-        valid_rivers_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
-        valid_rivers_str = pl.Series(valid_rivers_df).to_list()
-        self.__valid_rivers = [self.__rivers_dict[r] for r in valid_rivers_str]
-        return self.__valid_rivers
+        if not compared_tables.limit(1).collect().height == 0:
+            self.__compared_tables = compared_tables
+            valid_rivers_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
+            valid_rivers_str = pl.Series(valid_rivers_df).to_list()
+            self.__valid_rivers = [self.__rivers_dict[r] for r in valid_rivers_str]
+
+            color_table = [
+                ColorCard(card.rank, card.suit, color)
+                for card, color in zip(current_guess, table_colors)
+            ]
+            self.__used_tables.append(color_table)
+
+            return self.__valid_rivers
+        
+        else:
+            raise ValueError(
+                f"No rivers match colors={table_colors!r} for guess={guess_str!r}."
+            )
 
     def solve(self):
         """Find all possible board runouts that maintain the expected hand rankings.
@@ -912,7 +910,6 @@ class Solver:
         )
 
         # Format table cards for display
-
         flop_places = Solver.__player_hand_place(self.flop_hand_ranks)
         turn_places = Solver.__player_hand_place(self.turn_hand_ranks)
         river_places = Solver.__player_hand_place(self.river_hand_ranks)

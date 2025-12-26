@@ -3,8 +3,6 @@ This project solves Pokle games
 
 ## Project Notes:
 ### To Do:
-- ensure proper validation for the self.__tables_compared variable in the next_table_guess method.
-- when there are 0 possible rivers, have the solver revert to previous list of valid rivers.
 - clean up some the methods. Anytime you initialize one of the class attributes in a method, it should be returned by a separate method.
 - preserve green and yellow card order in game printout.
 - rewrite tests
