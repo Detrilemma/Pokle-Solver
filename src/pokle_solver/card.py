@@ -29,10 +29,14 @@ class Card:
                 raise ValueError(
                     "Rank must be between 2 and 14 (where 11=J, 12=Q, 13=K, 14=A)"
                 )
-            assert rank is not None and suit is not None  # Type narrowing for cache operations
+            assert (
+                rank is not None and suit is not None
+            )  # Type narrowing for cache operations
             cache_key = (rank, suit)
             if cache_key not in Card._card_index_cache:
-                Card._card_index_cache[cache_key] = (rank - 2) * 4 + Card._suit_indices[suit]
+                Card._card_index_cache[cache_key] = (rank - 2) * 4 + Card._suit_indices[
+                    suit
+                ]
             self._card_index = Card._card_index_cache[cache_key]
             if suit not in ["H", "D", "C", "S"]:
                 raise ValueError("Suit must be one of 'H', 'D', 'C', 'S'")
@@ -94,7 +98,7 @@ class Card:
     @property
     def rank(self) -> int | None:
         """Get the rank of the card.
-        
+
         Returns:
             int: Card rank from 2-14 (where 11=Jack, 12=Queen, 13=King, 14=Ace)
         """
@@ -103,7 +107,7 @@ class Card:
     @property
     def suit(self) -> str | None:
         """Get the suit of the card.
-        
+
         Returns:
             str: Card suit, one of 'H' (Hearts), 'D' (Diamonds), 'C' (Clubs), 'S' (Spades)
         """
@@ -112,7 +116,7 @@ class Card:
     @property
     def card_index(self) -> int | None:
         """Get the card index (0-51) for this card.
-        
+
         Returns:
             int: Card index in the range 0-51, or None if card has no rank/suit
         """
@@ -206,16 +210,19 @@ class Card:
             if self._rank is None or other._rank is None:
                 return NotImplemented
             return self._rank < other._rank
+
     def __le__(self, other):
         if isinstance(other, Card):
             if self._rank is None or other._rank is None:
                 return NotImplemented
             return self._rank <= other._rank
+
     def __gt__(self, other):
         if isinstance(other, Card):
             if self._rank is None or other._rank is None:
                 return NotImplemented
             return self._rank > other._rank
+
     def __ge__(self, other):
         if isinstance(other, Card):
             if self._rank is None or other._rank is None:
@@ -318,7 +325,9 @@ class ColorCard(Card):
 
     __slots__ = ("_color", "_hash_color")
 
-    def __init__(self, rank: int | None = None, suit: str | None = None, color: str = "e"):
+    def __init__(
+        self, rank: int | None = None, suit: str | None = None, color: str = "e"
+    ):
         super().__init__(rank, suit)
         if color not in ["g", "y", "e"]:
             raise ValueError(
@@ -382,7 +391,9 @@ class ColorCard(Card):
         return cls(rank, suit, color)
 
     def __repr__(self):
-        return f"ColorCard(rank={self._rank}, suit='{self._suit}', color='{self.color}')"
+        return (
+            f"ColorCard(rank={self._rank}, suit='{self._suit}', color='{self.color}')"
+        )
 
     def __str__(self):
         return super().__str__() + f"_{self.color}"

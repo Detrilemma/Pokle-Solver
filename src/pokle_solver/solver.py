@@ -1,7 +1,8 @@
 import os
+
 # ARM64 LLVM optimization workaround
 # Use generic ARM64 target to avoid CPU-specific scheduling model bugs
-os.environ['NUMBA_CPU_NAME'] = 'generic'
+os.environ["NUMBA_CPU_NAME"] = "generic"
 from card import Card, ColorCard
 from itertools import combinations
 from scipy.stats import entropy
@@ -56,12 +57,13 @@ class PhaseEvaluation:
         ...     prev_cards_used=set()
         ... )
     """
+
     table: list
     expected_rankings: list
     prev_cards_used: Optional[set] = None
     validate_all_cards_used: bool = False
     validate_all_cards_used: bool = False
-    
+
 
 MASTER_DECK = [
     Card(rank, suit) for rank in range(2, 15) for suit in ["H", "D", "C", "S"]
@@ -557,12 +559,12 @@ class Solver:
     @staticmethod
     @guvectorize(
         [(int8[:, :], int8[:, :], int16[:])],  # type signature: 2D inputs, 1D output
-        '(n,m),(n,m)->(n)',                        # shape signature: batch processing
-        nopython=True
+        "(n,m),(n,m)->(n)",  # shape signature: batch processing
+        nopython=True,
     )
     def __compare_tables(guess_indices, answer_indices, result):
         """Compare batches of poker tables and return color-coded results.
-        
+
         Args:
             guess_indices: 2D array of shape (n, 5) - n tables with 5 cards each
             answer_indices: 2D array of shape (n, 5) - n tables with 5 cards each
@@ -587,7 +589,10 @@ class Solver:
                     answer_i = np.flatnonzero(answer_flop == guess_table[i])[0]
                     flop_answer_ranks[answer_i] = -1  # mark as used
                     flop_answer_suits[answer_i] = -1  # mark as used
-                elif guess_ranks[i] in flop_answer_ranks or guess_suits[i] in flop_answer_suits:
+                elif (
+                    guess_ranks[i] in flop_answer_ranks
+                    or guess_suits[i] in flop_answer_suits
+                ):
                     colors[i] = 1  # yellow
                 else:
                     colors[i] = 0  # grey
@@ -595,7 +600,10 @@ class Solver:
             for i in range(3, 5):
                 if guess_table[i] == answer_table[i]:
                     colors[i] = 2  # green
-                elif guess_ranks[i] == answer_ranks[i] or guess_suits[i] == answer_suits[i]:
+                elif (
+                    guess_ranks[i] == answer_ranks[i]
+                    or guess_suits[i] == answer_suits[i]
+                ):
                     colors[i] = 1  # yellow
                 else:
                     colors[i] = 0  # grey
@@ -605,47 +613,79 @@ class Solver:
             for color in colors:
                 place_multiplier //= 10
                 result_value += color * place_multiplier
-            
+
             result[table_idx] = result_value
 
     def __organize_flop(self, table: list):
-        """Organize flop cards based on matching priority: exact > rank > suit > remaining."""
+        """
+        Organize flop cards based on matching priority with the previous table.
+
+        This method reorders the first three cards (flop) of the current table to align
+        with the previous table's flop based on a priority system: exact card matches
+        take highest priority, followed by rank matches, then suit matches, and finally
+        any remaining cards fill leftover slots. The turn and river cards (positions 4-5)
+        are preserved unchanged.
+
+        Args:
+            table (list): A list of Card objects representing the current community cards,
+                          where the first three elements are the flop.
+
+        Returns:
+            list: A new list with the reorganized flop (first 3 positions) based on
+                  matching priorities, followed by the unchanged turn and river cards.
+
+        Note:
+            This method requires that __used_tables contains at least one previous table
+            to compare against.
+        """
         preceding_flop = self.__used_tables[-1][:3].copy()
         current_flop = table[:3].copy()
         updated_flop = [None] * 3
-        
+
         # Phase 1: Exact card matches (highest priority)
         for i, prev_card in enumerate(preceding_flop):
             if prev_card in current_flop:
                 updated_flop[i] = prev_card
                 current_flop.remove(prev_card)
                 preceding_flop[i] = None  # Mark as matched
-        
+
         # Phase 2: Rank matches (second priority)
         for i, prev_card in enumerate(preceding_flop):
             if prev_card is None or updated_flop[i] is not None:
                 continue
-            
-            match_idx = next((j for j, curr_card in enumerate(current_flop) 
-                            if curr_card.rank == prev_card.rank), None)
+
+            match_idx = next(
+                (
+                    j
+                    for j, curr_card in enumerate(current_flop)
+                    if curr_card.rank == prev_card.rank
+                ),
+                None,
+            )
             if match_idx is not None:
                 updated_flop[i] = current_flop.pop(match_idx)
-        
+
         # Phase 3: Suit matches (third priority)
         for i, prev_card in enumerate(preceding_flop):
             if prev_card is None or updated_flop[i] is not None:
                 continue
-            
-            match_idx = next((j for j, curr_card in enumerate(current_flop) 
-                            if curr_card.suit == prev_card.suit), None)
+
+            match_idx = next(
+                (
+                    j
+                    for j, curr_card in enumerate(current_flop)
+                    if curr_card.suit == prev_card.suit
+                ),
+                None,
+            )
             if match_idx is not None:
                 updated_flop[i] = current_flop.pop(match_idx)
-        
+
         # Phase 4: Fill remaining slots with leftover cards
         for i in range(3):
             if updated_flop[i] is None and current_flop:
                 updated_flop[i] = current_flop.pop(0)
-        
+
         return updated_flop + table[3:]
 
     def get_maxh_table(self):
@@ -669,27 +709,37 @@ class Solver:
 
         rivers_str = [" ".join(str(card) for card in river) for river in rivers]
         rivers_index = [[card.card_index for card in river] for river in rivers]
-        
+
         self.__rivers_dict = dict(zip(rivers_str, rivers))
-        
+
         rivers_lf = pl.DataFrame(
             {"rivers_str": rivers_str, "rivers_index": rivers_index},
-            schema={"rivers_str": pl.Utf8, "rivers_index": pl.Array(pl.Int8, 5)}
+            schema={"rivers_str": pl.Utf8, "rivers_index": pl.Array(pl.Int8, 5)},
         ).lazy()
-        self.__compared_tables = rivers_lf.join(rivers_lf, how="cross", suffix="_answer")
-        
+        self.__compared_tables = rivers_lf.join(
+            rivers_lf, how="cross", suffix="_answer"
+        )
+
         # For Array columns, we need to convert to numpy arrays for guvectorize
         self.__compared_tables = self.__compared_tables.with_columns(
-            pl.struct(["rivers_index", "rivers_index_answer"]).map_batches(
+            pl.struct(["rivers_index", "rivers_index_answer"])
+            .map_batches(
                 lambda batch: pl.Series(
                     "comparison",
                     Solver.__compare_tables(  # type: ignore
-                        batch.struct.field("rivers_index").to_numpy().reshape(-1, 5).astype(np.int8),
-                        batch.struct.field("rivers_index_answer").to_numpy().reshape(-1, 5).astype(np.int8)
-                    )
+                        batch.struct.field("rivers_index")
+                        .to_numpy()
+                        .reshape(-1, 5)
+                        .astype(np.int8),
+                        batch.struct.field("rivers_index_answer")
+                        .to_numpy()
+                        .reshape(-1, 5)
+                        .astype(np.int8),
+                    ),
                 ),
-                return_dtype=pl.Int16
-            ).alias("comparison")
+                return_dtype=pl.Int16,
+            )
+            .alias("comparison")
         )
 
         # Groups by guess river string and aggregates comparison results into lists
@@ -699,20 +749,26 @@ class Solver:
 
         # Calculate probabilities of each comparison result
         rivers_grouped = rivers_grouped.with_columns(
-            pl.col("comparison_list").list.eval(
+            pl.col("comparison_list")
+            .list.eval(
                 pl.element().value_counts(normalize=True).struct.field("proportion")
-            ).list.eval(
+            )
+            .list.eval(
                 pl.element().map_batches(
                     lambda s: entropy(s, base=2),
                     returns_scalar=True,
-                    return_dtype=pl.Float64
+                    return_dtype=pl.Float64,
                 )
-            ).list.first().alias("entropy")
+            )
+            .list.first()
+            .alias("entropy")
         )
         entropy_df = rivers_grouped.select(["rivers_str", "entropy"]).collect()
-        max_entropy_river = entropy_df.filter(
-            pl.col("entropy") == pl.col("entropy").max()
-        ).select("rivers_str").row(0)[0]
+        max_entropy_river = (
+            entropy_df.filter(pl.col("entropy") == pl.col("entropy").max())
+            .select("rivers_str")
+            .row(0)[0]
+        )
 
         self.__maxh_table = self.__rivers_dict[max_entropy_river]
 
@@ -752,9 +808,11 @@ class Solver:
         # Validate state
 
         if not self.__maxh_table:
-            raise ValueError("No current guess available. Please run get_maxh_table() first.")
+            raise ValueError(
+                "No current guess available. Please run get_maxh_table() first."
+            )
 
-        current_guess = self.__maxh_table       
+        current_guess = self.__maxh_table
 
         if not getattr(self, "_Solver__valid_tables", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
@@ -766,7 +824,7 @@ class Solver:
             raise ValueError(
                 "Table colors must be a list of 5 colors for each card in the table."
             )
-        
+
         # Validate internal compared tables before filtering
         # Use explicit `is None` check to avoid evaluating a LazyFrame in boolean context
         if getattr(self, "_Solver__compared_tables", None) is None:
@@ -778,7 +836,7 @@ class Solver:
         if not isinstance(comp_tables, pl.LazyFrame):
             raise TypeError("Internal __compared_tables must be a polars LazyFrame.")
 
-        # Safely obtain column names; collecting a LazyFrame is used only as a fallback 
+        # Safely obtain column names; collecting a LazyFrame is used only as a fallback
         try:
             # Use collect_schema().names() to read column names without full collection
             cols = comp_tables.collect_schema().names()
@@ -789,7 +847,9 @@ class Solver:
         required_cols = {"rivers_str", "comparison", "rivers_str_answer"}
         missing = required_cols - set(cols)
         if missing:
-            raise ValueError(f"__compared_tables missing required columns: {sorted(missing)}")
+            raise ValueError(
+                f"__compared_tables missing required columns: {sorted(missing)}"
+            )
 
         self.__current_colors = table_colors.copy()
 
@@ -798,7 +858,7 @@ class Solver:
             color_map = dict(zip(self.__print_maxh_table, table_colors))
             table_colors = [color_map[card] for card in current_guess]
 
-        color_int_dict = {"e":0, "y":1, "g":2}
+        color_int_dict = {"e": 0, "y": 1, "g": 2}
         place_multiplier = 100_000
         result_value = 0
         for color in table_colors:
@@ -812,7 +872,9 @@ class Solver:
         )
         if not compared_tables.limit(1).collect().height == 0:
             self.__compared_tables = compared_tables
-            valid_tables_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
+            valid_tables_df = self.__compared_tables.select(
+                ["rivers_str_answer"]
+            ).collect()
             valid_tables_str = pl.Series(valid_tables_df).to_list()
             self.__valid_tables = [self.__rivers_dict[r] for r in valid_tables_str]
         else:
@@ -946,13 +1008,16 @@ class Solver:
 
         # Calculate hand ranks for river (full table)
         p1_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P1"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P1"]).rank]
+            + "\033[0m"
         )
         p2_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P2"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P2"]).rank]
+            + "\033[0m"
         )
         p3_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P3"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P3"]).rank]
+            + "\033[0m"
         )
 
         # Format table cards for display
@@ -980,17 +1045,20 @@ class Solver:
         print(
             f"      river:  {bg_colors[river_places[0]]}{p1_river}   {bg_colors[river_places[1]]}{p2_river}   {bg_colors[river_places[2]]}{p3_river}"
         )
-        
+
         if self.__used_tables and self.__current_colors:
             self.__used_tables[-1] = [
                 ColorCard(card.rank, card.suit, color) if card is not None else None
                 for card, color in zip(self.__used_tables[-1], self.__current_colors)
             ]
-        congratulate_user = ''
-        if not all(color == 'g' for color in self.__current_colors) or not self.__used_tables:
+        congratulate_user = ""
+        if (
+            not all(color == "g" for color in self.__current_colors)
+            or not self.__used_tables
+        ):
             self.__used_tables.append(table)
         else:
-            congratulate_user = f'You Won in {len(self.__used_tables)} Guesses! \n'
+            congratulate_user = f"Solved in {len(self.__used_tables)} Guesses! \n"
 
         print("|-----flop----|-turn|river|")
         for t in self.__used_tables:
