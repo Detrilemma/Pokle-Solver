@@ -3,34 +3,54 @@ This project solves Pokle games
 
 ## Project Notes:
 ### To Do:
-- clean up some the methods. Anytime you initialize one of the class attributes in a method, it should be returned by a separate method.
 - preserve green and yellow card order in game printout.
 - rewrite tests
-- take out references to the table object in solver.py
 - figure out git hooks to Ruff
 - connect to the web with playwright
 
-### Testing examples:
+### Solver._Solver__compare_tables testing examples:
 ```
-guess = [Card.from_string(c) for c in ['4S', 'KD', '7S', '4D', '6S']]
-answer = [Card.from_string(c) for c in ['3H', '9D', 'KS', '6C', '4S']]
+>>> guess = [Card.from_string(c) for c in ['4S', 'KD', '7S', '4D', '6S']]
+>>> answer = [Card.from_string(c) for c in ['3H', '9D', 'KS', '6C', '4S']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[11101]
 
-guess = [Card.from_string(c) for c in ['6D', '7D', '9C', 'KC', 'AS']]
-answer = [Card.from_string(c) for c in ['9H', '3S', '6D', 'KC', '9S']]
+>>> guess = [Card.from_string(c) for c in ['6D', '7D', '9C', 'KC', 'AS']]
+>>> answer = [Card.from_string(c) for c in ['9H', '3S', '6D', 'KC', '9S']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[20121]
 
-guess = [Card.from_string(c) for c in ['KS', '9S', 'AS', '4H', '6S']]
-answer = [Card.from_string(c) for c in ['7S', 'KS', 'AH', '4C', '6S']]
+>>> guess = [Card.from_string(c) for c in ['KS', '9S', 'AS', '4H', '6S']]
+>>> answer = [Card.from_string(c) for c in ['7S', 'KS', 'AH', '4C', '6S']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[21112]
 
-guess = [Card.from_string(c) for c in ['AS', 'KS', 'QS', 'JH', '10D']]
-answer = [Card.from_string(c) for c in ['AS', '2D', '3C', 'JD', '10D']]
+>>> guess = [Card.from_string(c) for c in ['AS', 'KS', 'QS', 'JH', '10D']]
+>>> answer = [Card.from_string(c) for c in ['AS', '2D', '3C', 'JD', '10D']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[20012]
 
-guess = [Card.from_string(c) for c in ['7H', '9S', '7S', '3D', 'KH']]
-answer = [Card.from_string(c) for c in ['7S', '9S', '7H', '3H', 'KD']]
+>>> guess = [Card.from_string(c) for c in ['7H', '9S', '7S', '3D', 'KH']]
+>>> answer = [Card.from_string(c) for c in ['7S', '9S', '7H', '3H', 'KD']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[22211]
 
-guess = [Card.from_string(c) for c in ['JD', 'JC', 'KD', '2H', '3S']]
-answer = [Card.from_string(c) for c in ['JD', 'KS', 'QH', '2D', '3S']]
-
-print(solver_1011.compare_tables(guess, answer))
+>>> guess = [Card.from_string(c) for c in ['JD', 'JC', 'KD', '2H', '3S']]
+>>> answer = [Card.from_string(c) for c in ['JD', 'KS', 'QH', '2D', '3S']]
+>>> guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> answer_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+>>> Solver._Solver__compare_tables(guess_index, answer_index)
+[20112]
 ```
 
 ## Notes
@@ -48,6 +68,58 @@ print(solver_1011.compare_tables(guess, answer))
 12: 40 41 42 43 
 13: 44 45 46 47 
 14: 48 49 50 51
+
+    def organize_flop(preceding_table, current_table):
+        preceding_flop = preceding_table[:3]
+        current_flop = current_table[:3]
+        current_ranks = {card.rank for card in current_flop}
+        current_suits = {card.suit for card in current_flop}
+        updated_flop = [None]*3
+        
+        # If a card from the preceding flop is in the current flop,
+        # place it in the same position
+        for i, card in enumerate(preceding_flop):
+            if card in current_flop:
+                updated_flop[i] = card
+                current_flop.remove(card)
+                preceding_flop[i] = Card()  # Mark as placed
+
+        preceding_ranks = {card.rank for card in preceding_flop}
+        preceding_suits = {card.suit for card in preceding_flop}
+        current_ranks = {card.rank for card in current_flop}
+        current_suits = {card.suit for card in current_flop}
+
+        shared_ranks = preceding_ranks.intersection(current_ranks)
+        shared_suits = preceding_suits.intersection(current_suits)
+
+        pre_rank_indices = (i for i, card in enumerate(preceding_flop) if card.rank in shared_ranks)
+        pre_suit_indices = (i for i, card in enumerate(preceding_flop) if card.suit in shared_suits)
+
+        for i in pre_rank_indices:
+            if updated_flop[i] is None:
+                for c_card in current_flop[:]:
+                    if c_card.rank == preceding_flop[i].rank:
+                        updated_flop[i] = c_card
+                        current_flop.remove(c_card)
+                        break
+
+        for i in pre_suit_indices:
+            if updated_flop[i] is None:
+                for c_card in current_flop[:]:
+                    if c_card.suit == preceding_flop[i].suit:
+                        updated_flop[i] = c_card
+                        current_flop.remove(c_card)
+                        break
+
+        # Fill remaining positions with leftover current flop cards
+        if current_flop:
+            current_flop_gen = (card for card in current_flop)
+            for i in range(3):
+                if updated_flop[i] is None:
+                    updated_flop[i] = next(current_flop_gen)
+
+        return updated_flop + current_table[3:]
+
 
 ### compare() rules description
 If two cards in the same position (flop, turn, river) have the same rank and suit, they are "green". If the cards in the same position have either a matching rank or suit (but not both), they are "yellow". For the cards in the flop (the first three cards), the order of the cards does not matter. ie, 2H 3D 4S is the same as 4S 2H 3D. In the flop, two cards in the guess that match either the rank or the suit (but is not a complete match) of one card would both be "yellow". However, if one card matches both the rank and suit of one card, it is "green" and the other card would be "grey" (or not colored). For example, if the flop of the guess is 2H 3D 4S and the flop of the answer is 4D 5S 2H, the first card would be "green" (2H), the second and third card would be "yellow" (3D matches the D of 4D, and 4S matches the S of 5S). Another example, if the flop of the guess is KD KH 3D and the flop of the answer is 7C KS AS, the first and second cards would be "yellow" (KD and KH both match the K of KS), and the third card would be "grey" (3D does not match either the rank or suit of any card in the answer). Final example, if the flop of the guess is KS KH 3D and the flop of the answer is 7C KS AS, the first card would be "green" (KS), the second card would be "grey" (KH does not match either the rank or suit of any remaining cards in the answer), and the third card would be "grey" (3D does not match either the rank or suit of any remaining cards in the answer). Cards in the turn (the fourth card) and river (the fifth card) are compared by position, so the fourth card of the guess is compared to the fourth card of the answer, and the fifth card of the guess is compared to the fifth card of the answer.

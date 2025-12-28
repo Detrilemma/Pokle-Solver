@@ -38,12 +38,12 @@ class HandRanking:
 class PhaseEvaluation:
     """Configuration for evaluating a poker game phase (flop, turn, or river).
 
-    Contains all information needed to evaluate whether a specific board state
+    Contains all information needed to evaluate whether a specific table state
     matches the expected hand rankings for a given phase of the game.
-    Used internally by the Solver to validate candidate board configurations.
+    Used internally by the Solver to validate candidate table configurations.
 
     Attributes:
-        board (list): The board state to evaluate (list of Card objects)
+        table (list): The table state to evaluate (list of Card objects)
         expected_rankings (list): Expected hand strength rankings for each player
                                  (list of 3 integers, permutation of [1, 2, 3])
         prev_cards_used (set | None): Set of cards already used in previous phases
@@ -51,17 +51,17 @@ class PhaseEvaluation:
 
     Examples:
         >>> phase = PhaseEvaluation(
-        ...     board=[Card(10, 'H'), Card(14, 'D'), Card(7, 'S')],
+        ...     table=[Card(10, 'H'), Card(14, 'D'), Card(7, 'S')],
         ...     expected_rankings=[2, 1, 3],  # P2 best, P1 second, P3 worst
         ...     prev_cards_used=set()
         ... )
     """
-    board: list
+    table: list
     expected_rankings: list
     prev_cards_used: Optional[set] = None
     validate_all_cards_used: bool = False
     validate_all_cards_used: bool = False
-
+    
 
 MASTER_DECK = [
     Card(rank, suit) for rank in range(2, 15) for suit in ["H", "D", "C", "S"]
@@ -69,26 +69,28 @@ MASTER_DECK = [
 
 
 class Solver:
-    """Solves for valid poker board runouts given player hole cards and hand rankings.
+    """Solves for valid poker table runouts given player hole cards and hand rankings.
 
-    The Solver finds all possible board configurations (flop + turn + river) that
+    The Solver finds all possible table configurations (flop + turn + river) that
     maintain specified hand strength rankings for each phase of the game. This is
-    the core engine for the Pokle game, which challenges players to guess the board
+    the core engine for the Pokle game, which challenges players to guess the table
     based on hand ranking feedback.
 
     Key features:
-    - Finds all valid board runouts matching ranking constraints
-    - Calculates optimal guesses using Shannon entropy (with sampling for large sets)
+    - Finds all valid table runouts matching ranking constraints
+    - Calculates optimal guesses using Shannon entropy
     - Supports interactive guessing with color-coded feedback
-    - Handles datasets from small (hundreds) to large (thousands) of possible boards
+    - Handles datasets from small (hundreds) to large (thousands) of possible tables
 
     The solver uses three-player Texas Hold'em rules and validates that hand rankings
     are consistent across all three phases (flop, turn, river).
 
     Attributes:
         hole_cards (dict): Player hole cards {'P1': [Card, Card], 'P2': ..., 'P3': ...}
-        hand_ranks (dict): Expected rankings for each phase {'flop': [2,1,3], 'turn': ...}
-        valid_rivers (list): All valid complete board states found by solve()
+        flop_hand_ranks (list): Expected rankings for flop phase [2, 1, 3]
+        turn_hand_ranks (list): Expected rankings for turn phase [1, 2, 3]
+        river_hand_ranks (list): Expected rankings for river phase [1, 2, 3]
+        valid_tables (list): All valid complete table states found by solve()
 
     Examples:
         >>> # Setup solver with player hands and expected rankings
@@ -101,9 +103,9 @@ class Solver:
         ...     river_hand_ranks=[1, 2, 3]   # P1 best at river
         ... )
 
-        >>> # Find all valid boards
+        >>> # Find all valid tables
         >>> possible_rivers = solver.solve()
-        >>> print(f"Found {len(possible_rivers)} possible boards")
+        >>> print(f"Found {len(possible_rivers)} possible tables")
 
         >>> # Get optimal first guess (using entropy)
         >>> best_guess = solver.get_maxh_table()
@@ -151,38 +153,38 @@ class Solver:
         self.river_hand_ranks = river_hand_ranks
 
         self.current_deck = MASTER_DECK.copy()
-        self.__valid_rivers = []
+        self.__valid_tables = []
         self.__maxh_table = []
         self.__used_tables = []
-        
+        self.__print_maxh_table = []
+        self.__current_colors = []
         self.__compared_tables = pl.LazyFrame()
         self.__rivers_dict = dict()
-
         # Cache all hole cards set for performance (used in __evaluate_phase)
         self.__all_hole_cards = {
             card for hole in self.hole_cards.values() for card in hole
         }
 
     @property
-    def valid_rivers(self):
-        """Get the list of valid river boards found by solve().
+    def valid_tables(self):
+        """Get the list of valid river tables found by solve().
 
         Returns:
-            list: List of list[Card] representing all valid complete boards.
+            list: List of list[Card] representing all valid complete tables.
 
         Examples:
             >>> solver.solve()
-            >>> len(solver.valid_rivers)
+            >>> len(solver.valid_tables)
             412
         """
-        return self.__valid_rivers
+        return self.__valid_tables
 
     @staticmethod
-    def rank_hand(board: list, hole: list) -> HandRanking:
-        """Evaluate the best 5-card poker hand from hole cards and board cards.
+    def rank_hand(table: list, hole: list) -> HandRanking:
+        """Evaluate the best 5-card poker hand from hole cards and table cards.
 
         Args:
-            board (list): List of Card objects on the board (3-5 cards).
+            table (list): List of Card objects on the table (3-5 cards).
             hole (list): List of 2 Card objects (player's hole cards).
 
         Returns:
@@ -192,15 +194,15 @@ class Solver:
                 - best_hand (tuple): Best 5 Card objects
 
         Examples:
-            >>> board = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H')]
+            >>> table = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H')]
             >>> hole = [Card(13, 'H'), Card(14, 'H')]
-            >>> ranking = Solver.rank_hand(board, hole)
+            >>> ranking = Solver.rank_hand(table, hole)
             >>> ranking.rank
             9  # Straight flush
             >>> ranking.tie_breakers
             (14,)  # Ace-high
         """
-        cards = hole + list(board)
+        cards = hole + list(table)
 
         # Count occurrences of each rank and group cards by suit in single pass
         rank_groups = {}
@@ -390,8 +392,8 @@ class Solver:
         """Find all possible flops that maintain the current player rankings.
 
         Returns:
-            list: A list of tuples (board, cards_used_in_hands) where cards_used_in_hands
-                  is a set of board cards used in any player's best hand at the flop.
+            list: A list of tuples (table, cards_used_in_hands) where cards_used_in_hands
+                  is a set of table cards used in any player's best hand at the flop.
         """
         hole_cards = {card for hole in self.hole_cards.values() for card in hole}
         remaining_cards = set(self.current_deck).difference(hole_cards)
@@ -401,15 +403,15 @@ class Solver:
 
         valid_flops = []
         for flop in all_flops:
-            flop_board = list(flop)
+            flop_table = list(flop)
 
             phase_eval = PhaseEvaluation(
-                board=flop_board, expected_rankings=self.flop_hand_ranks
+                table=flop_table, expected_rankings=self.flop_hand_ranks
             )
             is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
             if is_valid:
-                valid_flops.append((flop_board, cards_used))
+                valid_flops.append((flop_table, cards_used))
 
         return valid_flops
 
@@ -438,7 +440,7 @@ class Solver:
 
         for player, hole in self.hole_cards.items():
             # Compute hand rank for this player
-            player_hand = Solver.rank_hand(phase_eval.board, hole)
+            player_hand = Solver.rank_hand(phase_eval.table, hole)
             rank = player_hand.rank
             tie_breakers = player_hand.tie_breakers
 
@@ -474,9 +476,9 @@ class Solver:
 
         cards_used_accumulated.difference_update(all_hole_cards)
 
-        # For river, validate that all board cards were used at some point
+        # For river, validate that all table cards were used at some point
         if phase_eval.validate_all_cards_used and cards_used_accumulated != set(
-            phase_eval.board
+            phase_eval.table
         ):
             return False, cards_used_accumulated
 
@@ -497,26 +499,26 @@ class Solver:
         expected_rankings: list,
         validate_all_cards_used: bool = False,
     ):
-        """Helper method to find valid boards for the next phase (turn or river).
+        """Helper method to find valid tables for the next phase (turn or river).
 
         Args:
-            prev_phase_results (list): List of tuples (board, cards_used) from previous phase.
+            prev_phase_results (list): List of tuples (table, cards_used) from previous phase.
             expected_rankings (list): Expected hand rankings for this phase.
             validate_all_cards_used (bool): Whether to validate all cards were used.
 
         Returns:
-            list: List of tuples (board, cards_used_accumulated) for valid combinations.
+            list: List of tuples (table, cards_used_accumulated) for valid combinations.
         """
         valid_tables = []
 
-        for prev_board, prev_cards_used in prev_phase_results:
-            remaining_deck = set(self.current_deck) - set(prev_board)
+        for prev_table, prev_cards_used in prev_phase_results:
+            remaining_deck = set(self.current_deck) - set(prev_table)
 
             for next_card in remaining_deck:
-                next_board = prev_board + [next_card]
+                next_table = prev_table + [next_card]
 
                 phase_eval = PhaseEvaluation(
-                    board=next_board,
+                    table=next_table,
                     expected_rankings=expected_rankings,
                     prev_cards_used=prev_cards_used,
                     validate_all_cards_used=validate_all_cards_used,
@@ -524,7 +526,7 @@ class Solver:
                 is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
                 if is_valid:
-                    valid_tables.append((next_board, cards_used))
+                    valid_tables.append((next_table, cards_used))
 
         return valid_tables
 
@@ -532,10 +534,10 @@ class Solver:
         """Find all possible turns that maintain the current player rankings.
 
         Args:
-            flops (list): A list of tuples (board, cards_used) from flop phase.
+            flops (list): A list of tuples (table, cards_used) from flop phase.
 
         Returns:
-            list: A list of tuples (board, cards_used_accumulated) for valid turn combinations.
+            list: A list of tuples (table, cards_used_accumulated) for valid turn combinations.
         """
         return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
 
@@ -543,10 +545,10 @@ class Solver:
         """Find all possible rivers that maintain the current player rankings.
 
         Args:
-            turns (list): A list of tuples (board, cards_used) from turn phase.
+            turns (list): A list of tuples (table, cards_used) from turn phase.
 
         Returns:
-            list: A list of tuples (board, cards_used_accumulated) for valid river combinations.
+            list: A list of tuples (table, cards_used_accumulated) for valid river combinations.
         """
         return self.__find_valid_next_phase(
             turns, self.river_hand_ranks, validate_all_cards_used=True
@@ -558,31 +560,31 @@ class Solver:
         '(n,m),(n,m)->(n)',                        # shape signature: batch processing
         nopython=True
     )
-    def __compare_boards(guess_indices, answer_indices, result):
-        """Compare batches of poker boards and return color-coded results.
+    def __compare_tables(guess_indices, answer_indices, result):
+        """Compare batches of poker tables and return color-coded results.
         
         Args:
-            guess_indices: 2D array of shape (n, 5) - n boards with 5 cards each
-            answer_indices: 2D array of shape (n, 5) - n boards with 5 cards each
-            result: 1D output array of shape (n,) - encoded color codes for each board
+            guess_indices: 2D array of shape (n, 5) - n tables with 5 cards each
+            answer_indices: 2D array of shape (n, 5) - n tables with 5 cards each
+            result: 1D output array of shape (n,) - encoded color codes for each table
         """
-        n_boards = guess_indices.shape[0]
-        for board_idx in range(n_boards):
-            guess_board = guess_indices[board_idx]
-            guess_ranks = guess_board // 4
-            guess_suits = guess_board % 4
-            answer_board = answer_indices[board_idx]
-            answer_ranks = answer_board // 4
-            answer_suits = answer_board % 4
+        n_tables = guess_indices.shape[0]
+        for table_idx in range(n_tables):
+            guess_table = guess_indices[table_idx]
+            guess_ranks = guess_table // 4
+            guess_suits = guess_table % 4
+            answer_table = answer_indices[table_idx]
+            answer_ranks = answer_table // 4
+            answer_suits = answer_table % 4
             flop_answer_ranks = answer_ranks[:3]
             flop_answer_suits = answer_suits[:3]
-            answer_flop = answer_board[:3]
+            answer_flop = answer_table[:3]
 
             colors = [0, 0, 0, 0, 0]  # default to grey
             for i in range(3):
-                if guess_board[i] in answer_flop:
+                if guess_table[i] in answer_flop:
                     colors[i] = 2  # green
-                    answer_i = np.flatnonzero(answer_flop == guess_board[i])[0]
+                    answer_i = np.flatnonzero(answer_flop == guess_table[i])[0]
                     flop_answer_ranks[answer_i] = -1  # mark as used
                     flop_answer_suits[answer_i] = -1  # mark as used
                 elif guess_ranks[i] in flop_answer_ranks or guess_suits[i] in flop_answer_suits:
@@ -591,7 +593,7 @@ class Solver:
                     colors[i] = 0  # grey
 
             for i in range(3, 5):
-                if guess_board[i] == answer_board[i]:
+                if guess_table[i] == answer_table[i]:
                     colors[i] = 2  # green
                 elif guess_ranks[i] == answer_ranks[i] or guess_suits[i] == answer_suits[i]:
                     colors[i] = 1  # yellow
@@ -604,7 +606,47 @@ class Solver:
                 place_multiplier //= 10
                 result_value += color * place_multiplier
             
-            result[board_idx] = result_value
+            result[table_idx] = result_value
+
+    def __organize_flop(self, table: list):
+        """Organize flop cards based on matching priority: exact > rank > suit > remaining."""
+        preceding_flop = self.__used_tables[-1][:3].copy()
+        current_flop = table[:3].copy()
+        updated_flop = [None] * 3
+        
+        # Phase 1: Exact card matches (highest priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card in current_flop:
+                updated_flop[i] = prev_card
+                current_flop.remove(prev_card)
+                preceding_flop[i] = None  # Mark as matched
+        
+        # Phase 2: Rank matches (second priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card is None or updated_flop[i] is not None:
+                continue
+            
+            match_idx = next((j for j, curr_card in enumerate(current_flop) 
+                            if curr_card.rank == prev_card.rank), None)
+            if match_idx is not None:
+                updated_flop[i] = current_flop.pop(match_idx)
+        
+        # Phase 3: Suit matches (third priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card is None or updated_flop[i] is not None:
+                continue
+            
+            match_idx = next((j for j, curr_card in enumerate(current_flop) 
+                            if curr_card.suit == prev_card.suit), None)
+            if match_idx is not None:
+                updated_flop[i] = current_flop.pop(match_idx)
+        
+        # Phase 4: Fill remaining slots with leftover cards
+        for i in range(3):
+            if updated_flop[i] is None and current_flop:
+                updated_flop[i] = current_flop.pop(0)
+        
+        return updated_flop + table[3:]
 
     def get_maxh_table(self):
         """Calculate the table with highest entropy from all possible rivers.
@@ -617,13 +659,13 @@ class Solver:
             use_sampling (bool): Force sampling on/off. If None, auto-decide based on river count.
 
         Returns:
-            Table: The river with the highest entropy.
+            List: The river with the highest entropy.
         """
         # Validate state
-        if not getattr(self, "_Solver__valid_rivers", None):
+        if not getattr(self, "_Solver__valid_tables", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
 
-        rivers = self.__valid_rivers
+        rivers = self.__valid_tables
 
         rivers_str = [" ".join(str(card) for card in river) for river in rivers]
         rivers_index = [[card.card_index for card in river] for river in rivers]
@@ -641,7 +683,7 @@ class Solver:
             pl.struct(["rivers_index", "rivers_index_answer"]).map_batches(
                 lambda batch: pl.Series(
                     "comparison",
-                    Solver.__compare_boards(  # type: ignore
+                    Solver.__compare_tables(  # type: ignore
                         batch.struct.field("rivers_index").to_numpy().reshape(-1, 5).astype(np.int8),
                         batch.struct.field("rivers_index_answer").to_numpy().reshape(-1, 5).astype(np.int8)
                     )
@@ -674,9 +716,14 @@ class Solver:
 
         self.__maxh_table = self.__rivers_dict[max_entropy_river]
 
-        return self.__maxh_table
+        if self.__used_tables:
+            self.__print_maxh_table = self.__organize_flop(self.__maxh_table)
+        else:
+            self.__print_maxh_table = self.__maxh_table.copy()
 
-    def next_table_guess(self, table_colors: list, current_guess: list | None = None):
+        return self.__print_maxh_table
+
+    def next_table_guess(self, table_colors: list):
         """Filter valid rivers based on color feedback from the current guess.
 
         Updates the internal list of valid rivers to only include those that
@@ -686,7 +733,7 @@ class Solver:
         Args:
             table_colors (list): List of 5 color strings for each card:
                                 'g' = green, 'y' = yellow, 'e' = grey.
-            current_guess (list, optional): The board being guessed (5 cards). Defaults to maxh_table.
+            current_guess (list, optional): The table being guessed (5 cards). Defaults to maxh_table.
 
         Returns:
             list: Filtered list of valid rivers matching the color feedback.
@@ -702,15 +749,18 @@ class Solver:
             >>> len(remaining)
             87
         """
-        if current_guess is None:
-            current_guess = self.__maxh_table
-        
         # Validate state
-        if not getattr(self, "_Solver__valid_rivers", None):
+
+        if not self.__maxh_table:
+            raise ValueError("No current guess available. Please run get_maxh_table() first.")
+
+        current_guess = self.__maxh_table       
+
+        if not getattr(self, "_Solver__valid_tables", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
         if not isinstance(current_guess, list) or len(current_guess) != 5:
             raise ValueError(
-                "Current guess must be a list of 5 Card objects (complete board)."
+                "Current guess must be a list of 5 Card objects (complete table)."
             )
         if not isinstance(table_colors, list) or len(table_colors) != 5:
             raise ValueError(
@@ -741,6 +791,13 @@ class Solver:
         if missing:
             raise ValueError(f"__compared_tables missing required columns: {sorted(missing)}")
 
+        self.__current_colors = table_colors.copy()
+
+        # reorder the colors to match the internal representation
+        if self.__used_tables:
+            color_map = dict(zip(self.__print_maxh_table, table_colors))
+            table_colors = [color_map[card] for card in current_guess]
+
         color_int_dict = {"e":0, "y":1, "g":2}
         place_multiplier = 100_000
         result_value = 0
@@ -755,47 +812,38 @@ class Solver:
         )
         if not compared_tables.limit(1).collect().height == 0:
             self.__compared_tables = compared_tables
-            valid_rivers_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
-            valid_rivers_str = pl.Series(valid_rivers_df).to_list()
-            self.__valid_rivers = [self.__rivers_dict[r] for r in valid_rivers_str]
-
-            color_table = [
-                ColorCard(card.rank, card.suit, color)
-                for card, color in zip(current_guess, table_colors)
-            ]
-            self.__used_tables.append(color_table)
-
-            return self.__valid_rivers
-        
+            valid_tables_df = self.__compared_tables.select(["rivers_str_answer"]).collect()
+            valid_tables_str = pl.Series(valid_tables_df).to_list()
+            self.__valid_tables = [self.__rivers_dict[r] for r in valid_tables_str]
         else:
             raise ValueError(
                 f"No rivers match colors={table_colors!r} for guess={guess_str!r}."
             )
 
     def solve(self):
-        """Find all possible board runouts that maintain the expected hand rankings.
+        """Find all possible table runouts that maintain the expected hand rankings.
 
         Searches exhaustively through all possible flop/turn/river combinations
-        to find boards that match the expected rankings at each phase. This is
+        to find tables that match the expected rankings at each phase. This is
         the primary method to call after initializing the Solver.
 
         Returns:
-            list: List of valid boards (list[Card] with 5 cards each).
+            list: List of valid tables (list[Card] with 5 cards each).
 
         Examples:
             >>> solver = Solver(p1hole, p2hole, p3hole, [2,1,3], [1,2,3], [1,2,3])
-            >>> valid_boards = solver.solve()
-            >>> len(valid_boards)
+            >>> valid_tables = solver.solve()
+            >>> len(valid_tables)
             412
         """
         flops = self.__possible_flops()
         turns = self.__possible_turns(flops)
         river_results = self.__possible_rivers(turns)
 
-        # Extract just the boards (drop the cards_used metadata)
-        self.__valid_rivers = [board for board, _ in river_results]
+        # Extract just the tables (drop the cards_used metadata)
+        self.__valid_tables = [table for table, _ in river_results]
 
-        return self.__valid_rivers
+        return self.__valid_tables
 
     @staticmethod
     def __player_hand_place(hand_ranks: list):
@@ -818,19 +866,19 @@ class Solver:
         enum_rankings.sort(key=lambda x: x[1])  # Sort by player number
         return [place for place, _ in enum_rankings]
 
-    def print_game(self, board: list, is_win: bool = False):
-        """Print a formatted game state display with hand rankings and board cards.
+    def print_game(self, table: list):
+        """Print a formatted game state display with hand rankings and table cards.
 
         Shows player hole cards, hand strengths at each phase (flop/turn/river),
-        and the current board being evaluated. Uses colored output to highlight
+        and the current table being evaluated. Uses colored output to highlight
         rankings and cards.
 
         Args:
-            board (list): The board to display (list of 5 Card objects).
+            table (list): The table to display (list of 5 Card objects).
             is_win (bool, optional): Whether this is the final winning guess. Defaults to False.
 
         Raises:
-            ValueError: If solve() hasn't been called, board is invalid, or not in valid_rivers.
+            ValueError: If solve() hasn't been called, table is invalid, or not in valid_tables.
 
         Examples:
             >>> solver.solve()
@@ -841,12 +889,10 @@ class Solver:
                      ---  ---  ---
                      ...
         """
-        if not self.__valid_rivers:
+        if not self.__valid_tables:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if not isinstance(board, list) or len(board) != 5:
-            raise ValueError("Board must be a list of 5 Card objects.")
-        if board not in self.__valid_rivers:
-            raise ValueError("Provided board is not in the list of possible rivers.")
+        if not isinstance(table, list) or len(table) != 5:
+            raise ValueError("Table must be a list of 5 Card objects.")
 
         hand_rank_symbols = {
             1: "HC",
@@ -869,44 +915,44 @@ class Solver:
         p3_1 = self.hole_cards["P3"][1].pstr().ljust(3)
 
         # Calculate hand ranks for flop
-        flop_board = board[:3]
+        flop_table = table[:3]
         p1_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P1"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P1"]).rank]
             + "\033[0m"
         )
         p2_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P2"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P2"]).rank]
             + "\033[0m"
         )
         p3_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_board, self.hole_cards["P3"]).rank]
+            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P3"]).rank]
             + "\033[0m"
         )
 
         # Calculate hand ranks for turn
-        turn_board = board[:4]
+        turn_table = table[:4]
         p1_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P1"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P1"]).rank]
             + "\033[0m"
         )
         p2_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P2"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P2"]).rank]
             + "\033[0m"
         )
         p3_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_board, self.hole_cards["P3"]).rank]
+            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P3"]).rank]
             + "\033[0m"
         )
 
-        # Calculate hand ranks for river (full board)
+        # Calculate hand ranks for river (full table)
         p1_river = (
-            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P1"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P1"]).rank] + "\033[0m"
         )
         p2_river = (
-            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P2"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P2"]).rank] + "\033[0m"
         )
         p3_river = (
-            hand_rank_symbols[Solver.rank_hand(board, self.hole_cards["P3"]).rank] + "\033[0m"
+            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P3"]).rank] + "\033[0m"
         )
 
         # Format table cards for display
@@ -934,6 +980,18 @@ class Solver:
         print(
             f"      river:  {bg_colors[river_places[0]]}{p1_river}   {bg_colors[river_places[1]]}{p2_river}   {bg_colors[river_places[2]]}{p3_river}"
         )
+        
+        if self.__used_tables and self.__current_colors:
+            self.__used_tables[-1] = [
+                ColorCard(card.rank, card.suit, color) if card is not None else None
+                for card, color in zip(self.__used_tables[-1], self.__current_colors)
+            ]
+        congratulate_user = ''
+        if not all(color == 'g' for color in self.__current_colors) or not self.__used_tables:
+            self.__used_tables.append(table)
+        else:
+            congratulate_user = f'You Won in {len(self.__used_tables)} Guesses! \n'
+
         print("|-----flop----|-turn|river|")
         for t in self.__used_tables:
             c_flop_cards = [card.pstr().ljust(3) for card in t[:3]]
@@ -942,11 +1000,4 @@ class Solver:
             print(
                 f"| {c_flop_cards[0]} {c_flop_cards[1]} {c_flop_cards[2]} | {c_turn_card} | {c_river_card} |"
             )
-        if not is_win:
-            flop_cards = [card.pstr().ljust(3) for card in board[:3]]
-            turn_card = board[3].pstr().ljust(3)
-            river_card = board[4].pstr().ljust(3)
-            print(
-                f"| {flop_cards[0]} {flop_cards[1]} {flop_cards[2]} | {turn_card} | {river_card} |"
-            )
-        print()
+        print(congratulate_user)

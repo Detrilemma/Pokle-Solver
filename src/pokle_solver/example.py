@@ -1,5 +1,6 @@
 from card import Card
 from solver import Solver
+import numpy as np
 
 def sandbox():
     # p1_hole = [Card.from_string("6H"), Card.from_string("8H")]
@@ -57,8 +58,8 @@ def sandbox():
 
 
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
-    possible_rivers = solver.solve()
-    print(f"Possible rivers found: {len(possible_rivers)}")
+    possible_tables = solver.solve()
+    print(f"Possible tables found: {len(possible_tables)}")
     solver.print_game(solver.get_maxh_table())
 
     card_colors = ["e" for _ in range(5)]
@@ -76,9 +77,9 @@ def sandbox():
                     "Please enter exactly 5 colors using 'g', 'y', or 'e'."
                 )
             solver.next_table_guess(card_colors)
-            print(f"Possible rivers remaining: {len(solver.valid_rivers)}")
+            print(f"Possible tables remaining: {len(solver.valid_tables)}")
             is_all_green = all(color == "g" for color in card_colors)
-            solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
+            solver.print_game(solver.get_maxh_table())
         except ValueError as e:
             print(f"Error: {e}")
 
@@ -128,8 +129,8 @@ def demo():
     flop, turn, river = hand_ranks_list
 
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
-    possible_rivers = solver.solve()
-    print(f"Possible rivers found: {len(possible_rivers)}")
+    possible_tables = solver.solve()
+    print(f"Possible tables found: {len(possible_tables)}")
     solver.print_game(solver.get_maxh_table())
 
     card_colors = ["e" for _ in range(5)]
@@ -147,12 +148,66 @@ def demo():
                     "Please enter exactly 5 colors using 'g', 'y', or 'e'."
                 )
             solver.next_table_guess(card_colors)
-            print(f"Possible rivers remaining: {len(solver.valid_rivers)}")
+            print(f"Possible tables remaining: {len(solver.valid_tables)}")
             is_all_green = all(color == "g" for color in card_colors)
-            solver.print_game(solver.get_maxh_table(), is_win=is_all_green)
+            solver.print_game(solver.get_maxh_table())
         except ValueError as e:
             print(f"Error: {e}")
+
+def proving_ground():
+    
+    def organize_flop(preceding_table, current_table):
+        """Organize flop cards based on matching priority: exact > rank > suit > remaining."""
+        preceding_flop = preceding_table[:3].copy()
+        current_flop = current_table[:3].copy()
+        updated_flop = [None] * 3
+        
+        # Phase 1: Exact card matches (highest priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card in current_flop:
+                updated_flop[i] = prev_card
+                current_flop.remove(prev_card)
+                preceding_flop[i] = None  # Mark as matched
+        
+        # Phase 2: Rank matches (second priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card is None or updated_flop[i] is not None:
+                continue
             
+            match_idx = next((j for j, curr_card in enumerate(current_flop) 
+                            if curr_card.rank == prev_card.rank), None)
+            if match_idx is not None:
+                updated_flop[i] = current_flop.pop(match_idx)
+        
+        # Phase 3: Suit matches (third priority)
+        for i, prev_card in enumerate(preceding_flop):
+            if prev_card is None or updated_flop[i] is not None:
+                continue
+            
+            match_idx = next((j for j, curr_card in enumerate(current_flop) 
+                            if curr_card.suit == prev_card.suit), None)
+            if match_idx is not None:
+                updated_flop[i] = current_flop.pop(match_idx)
+        
+        # Phase 4: Fill remaining slots with leftover cards
+        for i in range(3):
+            if updated_flop[i] is None and current_flop:
+                updated_flop[i] = current_flop.pop(0)
+        
+        return updated_flop + current_table[3:]
+    
+    def reverse_org_colors(organized_table, current_table, table_colors):
+        """Reverse organize colors to match original table order."""
+        # Create a mapping of card -> color from organized table
+        color_map = dict(zip(organized_table, table_colors))
+        # Map each current table card to its color
+        return [color_map[card] for card in current_table]
+    
+    current_t = [Card.from_string(c) for c in ['KS', '9D', 'KH', '6C', '4S']]
+    preceding_t = [Card.from_string(c) for c in  ['4S', 'KD', '7S', '4D', '6S']]
+    print(f"  Current Table: {[str(card) for card in current_t]}")
+    print(f"Preceding Table: {[str(card) for card in preceding_t]}")
+    print(f"Organized Table: {[str(card) for card in organize_flop(preceding_t, current_t)]}")
 
 if __name__ == "__main__":
-    demo()
+    sandbox()
