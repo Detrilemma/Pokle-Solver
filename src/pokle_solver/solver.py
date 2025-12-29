@@ -226,66 +226,43 @@ class Solver:
 
         # Check for flush
         flush_cards = None
-        for suit, suited_cards in suit_groups.items():
-            suited_count = len(suited_cards)
-            if suited_count >= 5:
-                flush_cards = sorted(
-                    suited_cards, key=lambda card: card.rank, reverse=True
-                )
+        for suited_cards in suit_groups.values():
+            if len(suited_cards) >= 5:
+                # Sort flush cards by rank descending
+                flush_cards = sorted(suited_cards, key=lambda c: c.rank, reverse=True)
                 break
 
         # Check for straight
-        ranks = sorted(set(card.rank for card in cards), reverse=True)
+        unique_ranks = sorted(rank_groups.keys(), reverse=True)
         straight_high_card = None
 
         # Standard straight check
-        ranks_len = len(ranks)
-        for i in range(ranks_len - 4):
-            if ranks[i] - ranks[i + 4] == 4:
-                straight_high_card = ranks[i]
+        for i in range(len(unique_ranks) - 4):
+            if unique_ranks[i] - unique_ranks[i + 4] == 4:
+                straight_high_card = unique_ranks[i]
                 break
 
         # Special case for A-5-4-3-2 (Ace low straight)
-        if not straight_high_card:
-            ranks_set = set(ranks)
-            if (
-                14 in ranks_set
-                and 5 in ranks_set
-                and 4 in ranks_set
-                and 3 in ranks_set
-                and 2 in ranks_set
-            ):
+        if not straight_high_card and 14 in rank_groups and 5 in rank_groups:
+            if all(r in rank_groups for r in (2, 3, 4)):
                 straight_high_card = 5
 
         # Check for straight flush
         if flush_cards and straight_high_card:
-            flush_ranks = [c.rank for c in flush_cards]
-            flush_ranks_set = set(flush_ranks)
-
-            best_hand = [
-                c
-                for c in flush_cards
-                if straight_high_card >= c.rank >= straight_high_card - 4
-            ][:5]
-
-            if straight_high_card != 5:
-                has_straight_flush = True
-                for r in range(straight_high_card - 4, straight_high_card + 1):
-                    if r not in flush_ranks_set:
-                        has_straight_flush = False
-                        break
-
-                if has_straight_flush:
-                    return HandRanking(9, (straight_high_card,), tuple(best_hand))
-
-            elif (
-                14 in flush_ranks_set
-                and 5 in flush_ranks_set
-                and 4 in flush_ranks_set
-                and 3 in flush_ranks_set
-                and 2 in flush_ranks_set
-            ):
-                return HandRanking(9, (5,), tuple(best_hand))
+            flush_ranks_set = {c.rank for c in flush_cards}
+            
+            # Check if the straight exists in the flush cards
+            if straight_high_card == 5:
+                # Ace-low straight flush
+                if all(r in flush_ranks_set for r in (14, 5, 4, 3, 2)):
+                    best_hand = [c for c in flush_cards if c.rank in (14, 5, 4, 3, 2)]
+                    best_hand.sort(key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True)
+                    return HandRanking(9, (5,), tuple(best_hand[:5]))
+            else:
+                # Regular straight flush
+                if all(r in flush_ranks_set for r in range(straight_high_card - 4, straight_high_card + 1)):
+                    best_hand = [c for c in flush_cards if straight_high_card >= c.rank >= straight_high_card - 4]
+                    return HandRanking(9, (straight_high_card,), tuple(best_hand[:5]))
 
         # Pre-compute group sizes
         three_ranks = []
@@ -304,8 +281,7 @@ class Solver:
 
         # Check for four of a kind
         if four_rank is not None:
-            four_of_a_kind = rank_groups[four_rank]
-            return HandRanking(8, (four_rank,), tuple(four_of_a_kind))
+            return HandRanking(8, (four_rank,), tuple(rank_groups[four_rank]))
 
         # Check for full house
         if (three_ranks and pair_ranks) or len(three_ranks) > 1:
@@ -317,9 +293,8 @@ class Solver:
                 pair = rank_groups[max_pair_rank]
             else:
                 min_three = min(three_ranks)
-                second_three = rank_groups[min_three]
-                pair = second_three[:2]
-                max_pair_rank = pair[0].rank
+                pair = rank_groups[min_three][:2]
+                max_pair_rank = min_three
 
             best_hand = three_of_a_kind + pair
             return HandRanking(7, (max_three, max_pair_rank), tuple(best_hand))
@@ -334,39 +309,31 @@ class Solver:
         if straight_high_card:
             if straight_high_card == 5:
                 best_hand = [c for c in cards if c.rank in (14, 5, 4, 3, 2)]
-                best_hand.sort(
-                    key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
-                )
+                best_hand.sort(key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True)
             else:
-                best_hand = sorted(
-                    [
-                        c
-                        for c in cards
-                        if straight_high_card >= c.rank >= straight_high_card - 4
-                    ],
-                    reverse=True,
-                )
+                best_hand = [c for c in cards if straight_high_card >= c.rank >= straight_high_card - 4]
+                best_hand.sort(reverse=True)
             return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
 
         # Check for three of a kind
         if three_ranks:
             max_three = max(three_ranks)
             three_of_a_kind = rank_groups[max_three]
-            remaining = sorted(set(cards) - set(three_of_a_kind), reverse=True)
-            remaining_ranks = [c.rank for c in remaining[:2]]
+            # Get kickers from rank_groups directly
+            kicker_ranks = sorted((r for r in rank_groups.keys() if r != max_three), reverse=True)[:2]
             return HandRanking(
                 4,
-                tuple([max_three] + remaining_ranks),
+                tuple([max_three] + kicker_ranks),
                 tuple(three_of_a_kind),
             )
 
         # Check for two pair
-        pair_ranks_len = len(pair_ranks)
-        if pair_ranks_len >= 2:
+        if len(pair_ranks) >= 2:
             pair_ranks.sort(reverse=True)
             two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
-            remaining = sorted(set(cards) - set(two_pair), reverse=True)
-            remaining_rank = remaining[0].rank if remaining else 0
+            # Get kicker from remaining ranks
+            kicker_ranks = [r for r in rank_groups.keys() if r not in pair_ranks[:2]]
+            remaining_rank = max(kicker_ranks) if kicker_ranks else 0
             return HandRanking(
                 3,
                 tuple([pair_ranks[0], pair_ranks[1], remaining_rank]),
@@ -377,17 +344,17 @@ class Solver:
         if pair_ranks:
             pair_rank = pair_ranks[0]
             pair = rank_groups[pair_rank]
-            remaining = sorted(set(cards) - set(pair), reverse=True)
-            remaining_ranks = [c.rank for c in remaining[:3]]
-            return HandRanking(2, tuple([pair_rank] + remaining_ranks), tuple(pair))
+            # Get kickers from rank_groups directly
+            kicker_ranks = sorted((r for r in rank_groups.keys() if r != pair_rank), reverse=True)[:3]
+            return HandRanking(2, tuple([pair_rank] + kicker_ranks), tuple(pair))
 
-        # High card
-        best_hand = sorted(cards, reverse=True)[:5]
+        # High card - use pre-sorted unique ranks and get best card of each rank
+        best_hand = [rank_groups[r][0] for r in unique_ranks[:5]]
         best_hand_ranks = tuple(c.rank for c in best_hand)
         return HandRanking(
             1,
             best_hand_ranks,
-            tuple([best_hand[0]]),
+            tuple(best_hand),
         )
 
     def __possible_flops(self):
