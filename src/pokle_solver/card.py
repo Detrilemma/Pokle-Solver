@@ -1,3 +1,34 @@
+"""Card and ColorCard classes for representing playing cards.
+
+This module provides immutable Card objects for standard playing cards with
+optimized hash/equality operations, and ColorCard objects that extend cards
+with color feedback for the Pokle guessing game.
+
+Classes:
+    Card: Immutable playing card with rank and suit
+    ColorCard: Card with color feedback (green/yellow/grey)
+"""
+
+# Card rank constants
+RANK_ACE = 14
+RANK_KING = 13
+RANK_QUEEN = 12
+RANK_JACK = 11
+RANK_TEN = 10
+RANK_MIN = 2
+RANK_MAX = 14
+
+# Valid suits
+VALID_SUITS = {"H", "D", "C", "S"}
+SUITS = ["H", "D", "C", "S"]  # List version for iteration
+
+# Color constants for ColorCard
+COLOR_GREEN = "g"
+COLOR_YELLOW = "y"
+COLOR_GREY = "e"
+VALID_COLORS = {COLOR_GREEN, COLOR_YELLOW, COLOR_GREY}
+
+
 class Card:
     """Represents a standard playing card with rank and suit.
 
@@ -25,9 +56,9 @@ class Card:
         has_rank_and_suit = rank is not None and suit is not None
         if has_rank_and_suit:
             assert rank is not None and suit is not None  # Type narrowing
-            if rank < 2 or rank > 14:
+            if rank < RANK_MIN or rank > RANK_MAX:
                 raise ValueError(
-                    "Rank must be between 2 and 14 (where 11=J, 12=Q, 13=K, 14=A)"
+                    f"Rank must be between {RANK_MIN} and {RANK_MAX} (where {RANK_JACK}=J, {RANK_QUEEN}=Q, {RANK_KING}=K, {RANK_ACE}=A)"
                 )
             assert (
                 rank is not None and suit is not None
@@ -38,8 +69,8 @@ class Card:
                     suit
                 ]
             self._card_index = Card._card_index_cache[cache_key]
-            if suit not in ["H", "D", "C", "S"]:
-                raise ValueError("Suit must be one of 'H', 'D', 'C', 'S'")
+            if suit not in VALID_SUITS:
+                raise ValueError(f"Suit must be one of {VALID_SUITS}")
         else:
             self._card_index = None
 
@@ -143,7 +174,13 @@ class Card:
             >>> Card.rank_from_string('10')
             10
         """
-        face_cards = {"T": 10, "J": 11, "Q": 12, "K": 13, "A": 14}
+        face_cards = {
+            "T": RANK_TEN,
+            "J": RANK_JACK,
+            "Q": RANK_QUEEN,
+            "K": RANK_KING,
+            "A": RANK_ACE,
+        }
         try:
             return int(face_cards.get(rank_str, rank_str))
         except ValueError:
@@ -155,7 +192,7 @@ class Card:
     def __str__(self):
         if self._rank is None and self._suit is None:
             return "__"
-        face_cards = {11: "J", 12: "Q", 13: "K", 14: "A"}
+        face_cards = {RANK_JACK: "J", RANK_QUEEN: "Q", RANK_KING: "K", RANK_ACE: "A"}
         assert self._rank is not None and self._suit is not None
         return f"{face_cards.get(self._rank, self._rank)}{self._suit}"
 
@@ -173,7 +210,7 @@ class Card:
         if self._rank is None and self._suit is None:
             return "__"
 
-        face_cards = {11: "J", 12: "Q", 13: "K", 14: "A"}
+        face_cards = {RANK_JACK: "J", RANK_QUEEN: "Q", RANK_KING: "K", RANK_ACE: "A"}
         suit_symbols = {"H": "♥", "D": "♦", "C": "♣", "S": "♠"}
         suit_colors = {
             "H": "\033[38;2;255;0;0m",
@@ -275,7 +312,7 @@ class Card:
             return self._rank == other._rank
         return NotImplemented
 
-    def to_color(self, color: str = "e"):
+    def to_color(self, color: str = COLOR_GREY):
         """Convert this Card to a ColorCard with the specified color.
 
         Args:
@@ -285,7 +322,7 @@ class Card:
             ColorCard: New ColorCard with same rank/suit and specified color.
 
         Raises:
-            ValueError: If color not in ['g', 'y', 'e'].
+            ValueError: If color not in VALID_COLORS.
 
         Examples:
             >>> card = Card(14, 'H')
@@ -293,10 +330,8 @@ class Card:
             >>> str(colored)
             'AH_g'
         """
-        if color not in ["g", "y", "e"]:
-            raise ValueError(
-                "Color must be one of 'g' (green), 'y' (yellow), or 'e' (grey)"
-            )
+        if color not in VALID_COLORS:
+            raise ValueError(f"Color must be one of {VALID_COLORS}")
         return ColorCard(self._rank, self._suit, color)
 
 
@@ -326,13 +361,11 @@ class ColorCard(Card):
     __slots__ = ("_color", "_hash_color")
 
     def __init__(
-        self, rank: int | None = None, suit: str | None = None, color: str = "e"
+        self, rank: int | None = None, suit: str | None = None, color: str = COLOR_GREY
     ):
         super().__init__(rank, suit)
-        if color not in ["g", "y", "e"]:
-            raise ValueError(
-                "Color must be one of 'g' (green), 'y' (yellow), or 'e' (grey)"
-            )
+        if color not in VALID_COLORS:
+            raise ValueError(f"Color must be one of {VALID_COLORS}")
         self._color = color
         self._hash_color = None  # Lazy hash computation
 
@@ -357,7 +390,7 @@ class ColorCard(Card):
             return cls(base_card.rank, base_card.suit, color_part)
         else:
             base_card = super().from_string(card_string)
-            return cls(base_card.rank, base_card.suit, "e")
+            return cls(base_card.rank, base_card.suit, COLOR_GREY)
 
     @classmethod
     def from_tuple(cls, card_tuple: tuple):
@@ -380,7 +413,7 @@ class ColorCard(Card):
             rank, suit, color = card_tuple
         elif len(card_tuple) == 2:
             rank, suit = card_tuple
-            color = "e"
+            color = COLOR_GREY
         else:
             raise ValueError(
                 "Tuple must be of the form (rank, suit) or (rank, suit, color)"
@@ -423,10 +456,8 @@ class ColorCard(Card):
 
     @color.setter
     def color(self, value: str):
-        if value not in ["g", "y", "e"]:
-            raise ValueError(
-                "Color must be one of 'g' (green), 'y' (yellow), or 'e' (grey)"
-            )
+        if value not in VALID_COLORS:
+            raise ValueError(f"Color must be one of {VALID_COLORS}")
         self._color = value
 
     def __hash__(self):

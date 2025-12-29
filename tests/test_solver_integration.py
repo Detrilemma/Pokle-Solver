@@ -1,13 +1,7 @@
 """Integration tests for the Solver class."""
 
-import sys
-from pathlib import Path
-
-# Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "pokle_solver"))
-
-from card import Card
-from solver import Solver
+from pokle_solver.card import Card  # type: ignore
+from pokle_solver.solver import Solver  # type: ignore
 
 
 class TestSolverIntegrationBasic:
@@ -180,11 +174,11 @@ class TestSolverIntegrationKnownScenarios:
             assert isinstance(table, list)
             assert len(table) == 5
 
-            # Verify rankings using Solver.rank_hand
+            # Verify rankings using Solver._Solver__rank_hand
             flop = table[:3]
-            p1_flop = Solver.rank_hand(flop, p1_hole)
-            p2_flop = Solver.rank_hand(flop, p2_hole)
-            p3_flop = Solver.rank_hand(flop, p3_hole)
+            p1_flop = Solver._Solver__rank_hand(flop, p1_hole)  # type: ignore
+            p2_flop = Solver._Solver__rank_hand(flop, p2_hole)  # type: ignore
+            p3_flop = Solver._Solver__rank_hand(flop, p3_hole)  # type: ignore
 
             # Create rankings and verify order
             hands = [
@@ -276,9 +270,9 @@ class TestSolverIntegrationValidation:
             # Check flop rankings
             flop = table[:3]
             flop_hands = [
-                (1, Solver.rank_hand(flop, p1_hole)),
-                (2, Solver.rank_hand(flop, p2_hole)),
-                (3, Solver.rank_hand(flop, p3_hole)),
+                (1, Solver._Solver__rank_hand(flop, p1_hole)),  # type: ignore
+                (2, Solver._Solver__rank_hand(flop, p2_hole)),  # type: ignore
+                (3, Solver._Solver__rank_hand(flop, p3_hole)),  # type: ignore
             ]
             flop_hands.sort(key=lambda x: (x[1].rank, x[1].tie_breakers), reverse=True)
             flop_order = [h[0] for h in flop_hands]
@@ -287,9 +281,9 @@ class TestSolverIntegrationValidation:
             # Check turn rankings
             turn_table = table[:4]
             turn_hands = [
-                (1, Solver.rank_hand(turn_table, p1_hole)),
-                (2, Solver.rank_hand(turn_table, p2_hole)),
-                (3, Solver.rank_hand(turn_table, p3_hole)),
+                (1, Solver._Solver__rank_hand(turn_table, p1_hole)),  # type: ignore
+                (2, Solver._Solver__rank_hand(turn_table, p2_hole)),  # type: ignore
+                (3, Solver._Solver__rank_hand(turn_table, p3_hole)),  # type: ignore
             ]
             turn_hands.sort(key=lambda x: (x[1].rank, x[1].tie_breakers), reverse=True)
             turn_order = [h[0] for h in turn_hands]
@@ -297,9 +291,9 @@ class TestSolverIntegrationValidation:
 
             # Check river rankings
             river_hands = [
-                (1, Solver.rank_hand(table, p1_hole)),
-                (2, Solver.rank_hand(table, p2_hole)),
-                (3, Solver.rank_hand(table, p3_hole)),
+                (1, Solver._Solver__rank_hand(table, p1_hole)),  # type: ignore
+                (2, Solver._Solver__rank_hand(table, p2_hole)),  # type: ignore
+                (3, Solver._Solver__rank_hand(table, p3_hole)),  # type: ignore
             ]
             river_hands.sort(key=lambda x: (x[1].rank, x[1].tie_breakers), reverse=True)
             river_order = [h[0] for h in river_hands]

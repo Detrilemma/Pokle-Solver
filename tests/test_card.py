@@ -1,13 +1,8 @@
 """Unit tests for the Card and ColorCard classes."""
 
 import pytest
-import sys
-from pathlib import Path
 
-# Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "pokle_solver"))
-
-from card import Card, ColorCard
+from pokle_solver.card import Card, ColorCard  # type: ignore
 
 
 class TestCardInitialization:

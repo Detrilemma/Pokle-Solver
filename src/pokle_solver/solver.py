@@ -1,9 +1,23 @@
+"""Pokle game solver for finding valid poker table runouts.
+
+This module contains the core Solver class that exhaustively searches for all
+possible table configurations (flop, turn, river) matching specified hand
+ranking constraints across three players. Uses optimized hand evaluation,
+entropy-based guess selection, and vectorized comparison operations.
+
+Classes:
+    HandRanking: Dataclass for poker hand evaluation results
+    PhaseEvaluation: Dataclass for phase validation configuration
+    Solver: Main solver class for finding valid tables
+"""
+
 import os
 
 # ARM64 LLVM optimization workaround
 # Use generic ARM64 target to avoid CPU-specific scheduling model bugs
 os.environ["NUMBA_CPU_NAME"] = "generic"
-from card import Card, ColorCard
+
+from .card import Card, ColorCard, RANK_MIN, RANK_MAX, VALID_SUITS as SUITS
 from itertools import combinations
 from scipy.stats import entropy
 from dataclasses import dataclass
@@ -11,6 +25,40 @@ from typing import Optional
 from numba import guvectorize, int8, int16
 import numpy as np
 import polars as pl
+
+
+# Constants for hand rankings
+HAND_RANK_HIGH_CARD = 1
+HAND_RANK_PAIR = 2
+HAND_RANK_TWO_PAIR = 3
+HAND_RANK_THREE_KIND = 4
+HAND_RANK_STRAIGHT = 5
+HAND_RANK_FLUSH = 6
+HAND_RANK_FULL_HOUSE = 7
+HAND_RANK_FOUR_KIND = 8
+HAND_RANK_STRAIGHT_FLUSH = 9
+
+# Card rank constants (also available from card module)
+RANK_ACE = 14
+RANK_KING = 13
+RANK_QUEEN = 12
+RANK_JACK = 11
+RANK_TEN = 10
+
+# Color constants
+COLOR_GREY = "e"
+COLOR_YELLOW = "y"
+COLOR_GREEN = "g"
+VALID_COLORS = [COLOR_GREY, COLOR_YELLOW, COLOR_GREEN]
+
+# Number of players
+NUM_PLAYERS = 3
+HOLE_CARDS_PER_PLAYER = 2
+
+# Table size constants
+FLOP_SIZE = 3
+TURN_SIZE = 4
+RIVER_SIZE = 5
 
 
 @dataclass
@@ -62,11 +110,10 @@ class PhaseEvaluation:
     expected_rankings: list
     prev_cards_used: Optional[set] = None
     validate_all_cards_used: bool = False
-    validate_all_cards_used: bool = False
 
 
 MASTER_DECK = [
-    Card(rank, suit) for rank in range(2, 15) for suit in ["H", "D", "C", "S"]
+    Card(rank, suit) for rank in range(RANK_MIN, RANK_MAX + 1) for suit in SUITS
 ]
 
 
@@ -132,21 +179,23 @@ class Solver:
         for p_name, p_hole in zip(["P1", "P2", "P3"], [p1hole, p2hole, p3hole]):
             if (
                 not isinstance(p_hole, list)
-                or len(p_hole) != 2
+                or len(p_hole) != HOLE_CARDS_PER_PLAYER
                 or not all(isinstance(card, Card) for card in p_hole)
             ):
                 raise ValueError(
-                    f"{p_name} hole cards must be a list of exactly 2 Card objects."
+                    f"{p_name} hole cards must be a list of exactly {HOLE_CARDS_PER_PLAYER} Card objects."
                 )
 
         # Updated validation for hand ranks
+        expected_ranks = list(range(1, NUM_PLAYERS + 1))
         for hand_rank_lists in [flop_hand_ranks, turn_hand_ranks, river_hand_ranks]:
-            if not isinstance(hand_rank_lists, list) or sorted(hand_rank_lists) != [
-                1,
-                2,
-                3,
-            ]:
-                raise ValueError("Hand rank lists must be a permutation of [1, 2, 3]")
+            if (
+                not isinstance(hand_rank_lists, list)
+                or sorted(hand_rank_lists) != expected_ranks
+            ):
+                raise ValueError(
+                    f"Hand rank lists must be a permutation of {expected_ranks}"
+                )
 
         self.hole_cards = {"P1": p1hole, "P2": p2hole, "P3": p3hole}
 
@@ -243,7 +292,7 @@ class Solver:
                 break
 
         # Special case for A-5-4-3-2 (Ace low straight)
-        if not straight_high_card and 14 in rank_groups and 5 in rank_groups:
+        if not straight_high_card and RANK_ACE in rank_groups and 5 in rank_groups:
             if all(r in rank_groups for r in (2, 3, 4)):
                 straight_high_card = 5
 
@@ -254,12 +303,17 @@ class Solver:
             # Check if the straight exists in the flush cards
             if straight_high_card == 5:
                 # Ace-low straight flush
-                if all(r in flush_ranks_set for r in (14, 5, 4, 3, 2)):
-                    best_hand = [c for c in flush_cards if c.rank in (14, 5, 4, 3, 2)]
+                if all(r in flush_ranks_set for r in (RANK_ACE, 5, 4, 3, 2)):
+                    best_hand = [
+                        c for c in flush_cards if c.rank in (RANK_ACE, 5, 4, 3, 2)
+                    ]
                     best_hand.sort(
-                        key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                        key=lambda c: (1 if c.rank == RANK_ACE else c.rank),
+                        reverse=True,
                     )
-                    return HandRanking(9, (5,), tuple(best_hand[:5]))
+                    return HandRanking(
+                        HAND_RANK_STRAIGHT_FLUSH, (5,), tuple(best_hand[:5])
+                    )
             else:
                 # Regular straight flush
                 if all(
@@ -271,7 +325,11 @@ class Solver:
                         for c in flush_cards
                         if straight_high_card >= c.rank >= straight_high_card - 4
                     ]
-                    return HandRanking(9, (straight_high_card,), tuple(best_hand[:5]))
+                    return HandRanking(
+                        HAND_RANK_STRAIGHT_FLUSH,
+                        (straight_high_card,),
+                        tuple(best_hand[:5]),
+                    )
 
         # Pre-compute group sizes
         three_ranks = []
@@ -290,7 +348,9 @@ class Solver:
 
         # Check for four of a kind
         if four_rank is not None:
-            return HandRanking(8, (four_rank,), tuple(rank_groups[four_rank]))
+            return HandRanking(
+                HAND_RANK_FOUR_KIND, (four_rank,), tuple(rank_groups[four_rank])
+            )
 
         # Check for full house
         if (three_ranks and pair_ranks) or len(three_ranks) > 1:
@@ -306,20 +366,24 @@ class Solver:
                 max_pair_rank = min_three
 
             best_hand = three_of_a_kind + pair
-            return HandRanking(7, (max_three, max_pair_rank), tuple(best_hand))
+            return HandRanking(
+                HAND_RANK_FULL_HOUSE, (max_three, max_pair_rank), tuple(best_hand)
+            )
 
         # Check for flush
         if flush_cards:
             flush_card_hand = flush_cards[:5]
             flush_card_hand_ranks = tuple(c.rank for c in flush_card_hand)
-            return HandRanking(6, flush_card_hand_ranks, tuple(flush_card_hand))
+            return HandRanking(
+                HAND_RANK_FLUSH, flush_card_hand_ranks, tuple(flush_card_hand)
+            )
 
         # Check for straight
         if straight_high_card:
             if straight_high_card == 5:
-                best_hand = [c for c in cards if c.rank in (14, 5, 4, 3, 2)]
+                best_hand = [c for c in cards if c.rank in (RANK_ACE, 5, 4, 3, 2)]
                 best_hand.sort(
-                    key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                    key=lambda c: (1 if c.rank == RANK_ACE else c.rank), reverse=True
                 )
             else:
                 best_hand = [
@@ -328,7 +392,9 @@ class Solver:
                     if straight_high_card >= c.rank >= straight_high_card - 4
                 ]
                 best_hand.sort(reverse=True)
-            return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
+            return HandRanking(
+                HAND_RANK_STRAIGHT, (straight_high_card,), tuple(best_hand[:5])
+            )
 
         # Check for three of a kind
         if three_ranks:
@@ -339,7 +405,7 @@ class Solver:
                 (r for r in rank_groups.keys() if r != max_three), reverse=True
             )[:2]
             return HandRanking(
-                4,
+                HAND_RANK_THREE_KIND,
                 tuple([max_three] + kicker_ranks),
                 tuple(three_of_a_kind),
             )
@@ -352,7 +418,7 @@ class Solver:
             kicker_ranks = [r for r in rank_groups.keys() if r not in pair_ranks[:2]]
             remaining_rank = max(kicker_ranks) if kicker_ranks else 0
             return HandRanking(
-                3,
+                HAND_RANK_TWO_PAIR,
                 tuple([pair_ranks[0], pair_ranks[1], remaining_rank]),
                 tuple(two_pair),
             )
@@ -365,13 +431,15 @@ class Solver:
             kicker_ranks = sorted(
                 (r for r in rank_groups.keys() if r != pair_rank), reverse=True
             )[:3]
-            return HandRanking(2, tuple([pair_rank] + kicker_ranks), tuple(pair))
+            return HandRanking(
+                HAND_RANK_PAIR, tuple([pair_rank] + kicker_ranks), tuple(pair)
+            )
 
         # High card - use pre-sorted unique ranks and get best card of each rank
         best_hand = [rank_groups[r][0] for r in unique_ranks[:5]]
         best_hand_ranks = tuple(c.rank for c in best_hand)
         return HandRanking(
-            1,
+            HAND_RANK_HIGH_CARD,
             best_hand_ranks,
             tuple(best_hand),
         )
@@ -387,7 +455,7 @@ class Solver:
         remaining_cards = set(self.current_deck).difference(hole_cards)
         self.current_deck = list(remaining_cards)
 
-        all_flops = combinations(self.current_deck, 3)
+        all_flops = combinations(self.current_deck, FLOP_SIZE)
 
         for flop in all_flops:
             flop_table = list(flop)
@@ -448,7 +516,7 @@ class Solver:
             max_rank_seen = max(max_rank_seen, rank)
 
             # Collect cards used in current phase (exclude flush hands)
-            if rank != 6:  # Not a flush
+            if rank != HAND_RANK_FLUSH:  # Not a flush
                 cards_used_current_phase.update(set(player_hand.best_hand))
 
         # Accumulate cards used across all phases
@@ -557,12 +625,12 @@ class Solver:
             answer_table = answer_indices[table_idx]
             answer_ranks = answer_table // 4
             answer_suits = answer_table % 4
-            flop_answer_ranks = answer_ranks[:3]
-            flop_answer_suits = answer_suits[:3]
-            answer_flop = answer_table[:3]
+            flop_answer_ranks = answer_ranks[:FLOP_SIZE]
+            flop_answer_suits = answer_suits[:FLOP_SIZE]
+            answer_flop = answer_table[:FLOP_SIZE]
 
             colors = [0, 0, 0, 0, 0]  # default to grey
-            for i in range(3):
+            for i in range(FLOP_SIZE):
                 if guess_table[i] in answer_flop:
                     colors[i] = 2  # green
                     answer_i = np.flatnonzero(answer_flop == guess_table[i])[0]
@@ -576,7 +644,7 @@ class Solver:
                 else:
                     colors[i] = 0  # grey
 
-            for i in range(3, 5):
+            for i in range(FLOP_SIZE, RIVER_SIZE):
                 if guess_table[i] == answer_table[i]:
                     colors[i] = 2  # green
                 elif (
@@ -617,9 +685,9 @@ class Solver:
             This method requires that __used_tables contains at least one previous table
             to compare against.
         """
-        preceding_flop = self.__used_tables[-1][:3].copy()
-        current_flop = table[:3].copy()
-        updated_flop = [None] * 3
+        preceding_flop = self.__used_tables[-1][:FLOP_SIZE].copy()
+        current_flop = table[:FLOP_SIZE].copy()
+        updated_flop = [None] * FLOP_SIZE
 
         # Phase 1: Exact card matches (highest priority)
         for i, prev_card in enumerate(preceding_flop):
@@ -661,11 +729,11 @@ class Solver:
                 updated_flop[i] = current_flop.pop(match_idx)
 
         # Phase 4: Fill remaining slots with leftover cards
-        for i in range(3):
+        for i in range(FLOP_SIZE):
             if updated_flop[i] is None and current_flop:
                 updated_flop[i] = current_flop.pop(0)
 
-        return updated_flop + table[3:]
+        return updated_flop + table[FLOP_SIZE:]
 
     def get_maxh_table(self):
         """Calculate the table with highest entropy from all possible rivers.
@@ -795,13 +863,13 @@ class Solver:
 
         if not getattr(self, "_Solver__valid_tables", None):
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if not isinstance(current_guess, list) or len(current_guess) != 5:
+        if not isinstance(current_guess, list) or len(current_guess) != RIVER_SIZE:
             raise ValueError(
-                "Current guess must be a list of 5 Card objects (complete table)."
+                f"Current guess must be a list of {RIVER_SIZE} Card objects (complete table)."
             )
-        if not isinstance(table_colors, list) or len(table_colors) != 5:
+        if not isinstance(table_colors, list) or len(table_colors) != RIVER_SIZE:
             raise ValueError(
-                "Table colors must be a list of 5 colors for each card in the table."
+                f"Table colors must be a list of {RIVER_SIZE} colors for each card in the table."
             )
 
         # Validate internal compared tables before filtering
@@ -932,19 +1000,19 @@ class Solver:
         """
         if not self.__valid_tables:
             raise ValueError("No possible rivers calculated. Please run solve() first.")
-        if not isinstance(table, list) or len(table) != 5:
-            raise ValueError("Table must be a list of 5 Card objects.")
+        if not isinstance(table, list) or len(table) != RIVER_SIZE:
+            raise ValueError(f"Table must be a list of {RIVER_SIZE} Card objects.")
 
         hand_rank_symbols = {
-            1: "HC",
-            2: "1P",
-            3: "2P",
-            4: "3K",
-            5: "St",
-            6: "Fl",
-            7: "FH",
-            8: "4K",
-            9: "SF",
+            HAND_RANK_HIGH_CARD: "HC",
+            HAND_RANK_PAIR: "1P",
+            HAND_RANK_TWO_PAIR: "2P",
+            HAND_RANK_THREE_KIND: "3K",
+            HAND_RANK_STRAIGHT: "St",
+            HAND_RANK_FLUSH: "Fl",
+            HAND_RANK_FULL_HOUSE: "FH",
+            HAND_RANK_FOUR_KIND: "4K",
+            HAND_RANK_STRAIGHT_FLUSH: "SF",
         }
 
         # Format hole cards
@@ -956,7 +1024,7 @@ class Solver:
         p3_1 = self.hole_cards["P3"][1].pstr().ljust(3)
 
         # Calculate hand ranks for flop
-        flop_table = table[:3]
+        flop_table = table[:FLOP_SIZE]
         p1_flop = (
             hand_rank_symbols[
                 Solver.__rank_hand(flop_table, self.hole_cards["P1"]).rank
@@ -977,7 +1045,7 @@ class Solver:
         )
 
         # Calculate hand ranks for turn
-        turn_table = table[:4]
+        turn_table = table[:TURN_SIZE]
         p1_turn = (
             hand_rank_symbols[
                 Solver.__rank_hand(turn_table, self.hole_cards["P1"]).rank
@@ -1053,9 +1121,9 @@ class Solver:
 
         print("|-----flop----|-turn|river|")
         for t in self.__used_tables:
-            c_flop_cards = [card.pstr().ljust(3) for card in t[:3]]
-            c_turn_card = t[3].pstr().ljust(3)
-            c_river_card = t[4].pstr().ljust(3)
+            c_flop_cards = [card.pstr().ljust(3) for card in t[:FLOP_SIZE]]
+            c_turn_card = t[FLOP_SIZE].pstr().ljust(3)
+            c_river_card = t[TURN_SIZE].pstr().ljust(3)
             print(
                 f"| {c_flop_cards[0]} {c_flop_cards[1]} {c_flop_cards[2]} | {c_turn_card} | {c_river_card} |"
             )

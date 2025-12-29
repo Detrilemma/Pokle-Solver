@@ -1,15 +1,10 @@
 """Unit tests for the Solver class."""
 
 import pytest
-import sys
 import numpy as np
-from pathlib import Path
 
-# Add src directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "pokle_solver"))
-
-from card import Card
-from solver import Solver, PhaseEvaluation, MASTER_DECK
+from pokle_solver.card import Card  # type: ignore
+from pokle_solver.solver import Solver, PhaseEvaluation, MASTER_DECK  # type: ignore
 
 
 class TestSolverInitialization:
@@ -617,7 +612,7 @@ class TestRankHandBestHandTuple:
         table = [Card(2, "H"), Card(5, "D"), Card(9, "S")]
         hole = [Card(10, "C"), Card(13, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 1  # High card
         assert len(ranking.best_hand) == 5
@@ -628,7 +623,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
         hole = [Card(7, "C"), Card(13, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 2  # One pair
         assert len(ranking.best_hand) == 2
@@ -639,7 +634,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
         hole = [Card(5, "C"), Card(13, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 3  # Two pair
         assert len(ranking.best_hand) == 4
@@ -652,7 +647,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(10, "D"), Card(10, "S")]
         hole = [Card(7, "C"), Card(13, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 4  # Three of a kind
         assert len(ranking.best_hand) == 3
@@ -663,7 +658,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(11, "D"), Card(12, "S")]
         hole = [Card(13, "C"), Card(14, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
@@ -688,7 +683,7 @@ class TestRankHandBestHandTuple:
         ]
         hole = [Card(14, "H"), Card(2, "D")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
@@ -701,7 +696,7 @@ class TestRankHandBestHandTuple:
         table = [Card(2, "H"), Card(3, "D"), Card(4, "S")]
         hole = [Card(5, "C"), Card(14, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
@@ -712,7 +707,7 @@ class TestRankHandBestHandTuple:
         table = [Card(2, "H"), Card(5, "H"), Card(9, "H")]
         hole = [Card(11, "H"), Card(13, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 6  # Flush
         assert len(ranking.best_hand) == 5
@@ -723,7 +718,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(10, "D"), Card(10, "S")]
         hole = [Card(5, "C"), Card(5, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 7  # Full house
         assert len(ranking.best_hand) == 5
@@ -742,7 +737,7 @@ class TestRankHandBestHandTuple:
         ]
         hole = [Card(7, "H"), Card(2, "D")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 8  # Four of a kind
         assert len(ranking.best_hand) == 4
@@ -753,7 +748,7 @@ class TestRankHandBestHandTuple:
         table = [Card(10, "H"), Card(11, "H"), Card(12, "H")]
         hole = [Card(13, "H"), Card(14, "H")]
 
-        ranking = Solver.rank_hand(table, hole)
+        ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 9  # Straight flush
         assert len(ranking.best_hand) == 5

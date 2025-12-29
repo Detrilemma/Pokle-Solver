@@ -1,5 +1,32 @@
-from card import Card
-from solver import Solver
+"""Example script demonstrating Pokle solver usage.
+
+Provides a sandbox environment for testing the solver with pre-configured
+scenarios. Useful for development and testing.
+
+This script can be run either as a module (python -m pokle_solver.example)
+or directly as a script (python example.py).
+
+Functions:
+    sandbox: Run solver with example configuration
+"""
+
+# Support both direct execution and module import
+if __name__ == "__main__":
+    # Running as script - use absolute imports with sys.path manipulation
+    import sys
+    from pathlib import Path
+    
+    # Add parent directory to path so we can import pokle_solver
+    src_path = Path(__file__).parent.parent
+    if str(src_path) not in sys.path:
+        sys.path.insert(0, str(src_path))
+    
+    from pokle_solver.card import Card
+    from pokle_solver.solver import Solver
+else:
+    # Running as module - use relative imports
+    from .card import Card
+    from .solver import Solver
 
 
 def sandbox():
