@@ -182,7 +182,7 @@ class Solver:
         return self.__valid_tables
 
     @staticmethod
-    def rank_hand(table: list, hole: list) -> HandRanking:
+    def __rank_hand(table: list, hole: list) -> HandRanking:
         """Evaluate the best 5-card poker hand from hole cards and table cards.
 
         Args:
@@ -198,7 +198,7 @@ class Solver:
         Examples:
             >>> table = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H')]
             >>> hole = [Card(13, 'H'), Card(14, 'H')]
-            >>> ranking = Solver.rank_hand(table, hole)
+            >>> ranking = Solver.__rank_hand(table, hole)
             >>> ranking.rank
             9  # Straight flush
             >>> ranking.tie_breakers
@@ -250,18 +250,27 @@ class Solver:
         # Check for straight flush
         if flush_cards and straight_high_card:
             flush_ranks_set = {c.rank for c in flush_cards}
-            
+
             # Check if the straight exists in the flush cards
             if straight_high_card == 5:
                 # Ace-low straight flush
                 if all(r in flush_ranks_set for r in (14, 5, 4, 3, 2)):
                     best_hand = [c for c in flush_cards if c.rank in (14, 5, 4, 3, 2)]
-                    best_hand.sort(key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True)
+                    best_hand.sort(
+                        key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                    )
                     return HandRanking(9, (5,), tuple(best_hand[:5]))
             else:
                 # Regular straight flush
-                if all(r in flush_ranks_set for r in range(straight_high_card - 4, straight_high_card + 1)):
-                    best_hand = [c for c in flush_cards if straight_high_card >= c.rank >= straight_high_card - 4]
+                if all(
+                    r in flush_ranks_set
+                    for r in range(straight_high_card - 4, straight_high_card + 1)
+                ):
+                    best_hand = [
+                        c
+                        for c in flush_cards
+                        if straight_high_card >= c.rank >= straight_high_card - 4
+                    ]
                     return HandRanking(9, (straight_high_card,), tuple(best_hand[:5]))
 
         # Pre-compute group sizes
@@ -309,9 +318,15 @@ class Solver:
         if straight_high_card:
             if straight_high_card == 5:
                 best_hand = [c for c in cards if c.rank in (14, 5, 4, 3, 2)]
-                best_hand.sort(key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True)
+                best_hand.sort(
+                    key=lambda c: (1 if c.rank == 14 else c.rank), reverse=True
+                )
             else:
-                best_hand = [c for c in cards if straight_high_card >= c.rank >= straight_high_card - 4]
+                best_hand = [
+                    c
+                    for c in cards
+                    if straight_high_card >= c.rank >= straight_high_card - 4
+                ]
                 best_hand.sort(reverse=True)
             return HandRanking(5, (straight_high_card,), tuple(best_hand[:5]))
 
@@ -320,7 +335,9 @@ class Solver:
             max_three = max(three_ranks)
             three_of_a_kind = rank_groups[max_three]
             # Get kickers from rank_groups directly
-            kicker_ranks = sorted((r for r in rank_groups.keys() if r != max_three), reverse=True)[:2]
+            kicker_ranks = sorted(
+                (r for r in rank_groups.keys() if r != max_three), reverse=True
+            )[:2]
             return HandRanking(
                 4,
                 tuple([max_three] + kicker_ranks),
@@ -345,7 +362,9 @@ class Solver:
             pair_rank = pair_ranks[0]
             pair = rank_groups[pair_rank]
             # Get kickers from rank_groups directly
-            kicker_ranks = sorted((r for r in rank_groups.keys() if r != pair_rank), reverse=True)[:3]
+            kicker_ranks = sorted(
+                (r for r in rank_groups.keys() if r != pair_rank), reverse=True
+            )[:3]
             return HandRanking(2, tuple([pair_rank] + kicker_ranks), tuple(pair))
 
         # High card - use pre-sorted unique ranks and get best card of each rank
@@ -360,17 +379,16 @@ class Solver:
     def __possible_flops(self):
         """Find all possible flops that maintain the current player rankings.
 
-        Returns:
-            list: A list of tuples (table, cards_used_in_hands) where cards_used_in_hands
+        Yields:
+            tuple: (table, cards_used_in_hands) where cards_used_in_hands
                   is a set of table cards used in any player's best hand at the flop.
         """
         hole_cards = {card for hole in self.hole_cards.values() for card in hole}
         remaining_cards = set(self.current_deck).difference(hole_cards)
         self.current_deck = list(remaining_cards)
 
-        all_flops = list(combinations(self.current_deck, 3))
+        all_flops = combinations(self.current_deck, 3)
 
-        valid_flops = []
         for flop in all_flops:
             flop_table = list(flop)
 
@@ -380,9 +398,7 @@ class Solver:
             is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
             if is_valid:
-                valid_flops.append((flop_table, cards_used))
-
-        return valid_flops
+                yield (flop_table, cards_used)
 
     def __evaluate_phase(self, phase_eval: PhaseEvaluation):
         """Helper method to evaluate hands for all players at a given phase.
@@ -409,7 +425,7 @@ class Solver:
 
         for player, hole in self.hole_cards.items():
             # Compute hand rank for this player
-            player_hand = Solver.rank_hand(phase_eval.table, hole)
+            player_hand = Solver.__rank_hand(phase_eval.table, hole)
             rank = player_hand.rank
             tie_breakers = player_hand.tie_breakers
 
@@ -464,22 +480,20 @@ class Solver:
 
     def __find_valid_next_phase(
         self,
-        prev_phase_results: list,
+        prev_phase_results,
         expected_rankings: list,
         validate_all_cards_used: bool = False,
     ):
         """Helper method to find valid tables for the next phase (turn or river).
 
         Args:
-            prev_phase_results (list): List of tuples (table, cards_used) from previous phase.
+            prev_phase_results: Iterator of tuples (table, cards_used) from previous phase.
             expected_rankings (list): Expected hand rankings for this phase.
             validate_all_cards_used (bool): Whether to validate all cards were used.
 
-        Returns:
-            list: List of tuples (table, cards_used_accumulated) for valid combinations.
+        Yields:
+            tuple: (table, cards_used_accumulated) for valid combinations.
         """
-        valid_tables = []
-
         for prev_table, prev_cards_used in prev_phase_results:
             remaining_deck = set(self.current_deck) - set(prev_table)
 
@@ -495,29 +509,27 @@ class Solver:
                 is_valid, cards_used = self.__evaluate_phase(phase_eval)
 
                 if is_valid:
-                    valid_tables.append((next_table, cards_used))
+                    yield (next_table, cards_used)
 
-        return valid_tables
-
-    def __possible_turns(self, flops: list):
+    def __possible_turns(self, flops):
         """Find all possible turns that maintain the current player rankings.
 
         Args:
-            flops (list): A list of tuples (table, cards_used) from flop phase.
+            flops: Iterator of tuples (table, cards_used) from flop phase.
 
-        Returns:
-            list: A list of tuples (table, cards_used_accumulated) for valid turn combinations.
+        Yields:
+            tuple: (table, cards_used_accumulated) for valid turn combinations.
         """
         return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
 
-    def __possible_rivers(self, turns: list):
+    def __possible_rivers(self, turns):
         """Find all possible rivers that maintain the current player rankings.
 
         Args:
-            turns (list): A list of tuples (table, cards_used) from turn phase.
+            turns: Iterator of tuples (table, cards_used) from turn phase.
 
-        Returns:
-            list: A list of tuples (table, cards_used_accumulated) for valid river combinations.
+        Yields:
+            tuple: (table, cards_used_accumulated) for valid river combinations.
         """
         return self.__find_valid_next_phase(
             turns, self.river_hand_ranks, validate_all_cards_used=True
@@ -867,7 +879,7 @@ class Solver:
         """
         flops = self.__possible_flops()
         turns = self.__possible_turns(flops)
-        river_results = self.__possible_rivers(turns)
+        river_results = list(self.__possible_rivers(turns))
 
         # Extract just the tables (drop the cards_used metadata)
         self.__valid_tables = [table for table, _ in river_results]
@@ -946,44 +958,56 @@ class Solver:
         # Calculate hand ranks for flop
         flop_table = table[:3]
         p1_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P1"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(flop_table, self.hole_cards["P1"]).rank
+            ]
             + "\033[0m"
         )
         p2_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P2"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(flop_table, self.hole_cards["P2"]).rank
+            ]
             + "\033[0m"
         )
         p3_flop = (
-            hand_rank_symbols[Solver.rank_hand(flop_table, self.hole_cards["P3"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(flop_table, self.hole_cards["P3"]).rank
+            ]
             + "\033[0m"
         )
 
         # Calculate hand ranks for turn
         turn_table = table[:4]
         p1_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P1"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(turn_table, self.hole_cards["P1"]).rank
+            ]
             + "\033[0m"
         )
         p2_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P2"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(turn_table, self.hole_cards["P2"]).rank
+            ]
             + "\033[0m"
         )
         p3_turn = (
-            hand_rank_symbols[Solver.rank_hand(turn_table, self.hole_cards["P3"]).rank]
+            hand_rank_symbols[
+                Solver.__rank_hand(turn_table, self.hole_cards["P3"]).rank
+            ]
             + "\033[0m"
         )
 
         # Calculate hand ranks for river (full table)
         p1_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P1"]).rank]
+            hand_rank_symbols[Solver.__rank_hand(table, self.hole_cards["P1"]).rank]
             + "\033[0m"
         )
         p2_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P2"]).rank]
+            hand_rank_symbols[Solver.__rank_hand(table, self.hole_cards["P2"]).rank]
             + "\033[0m"
         )
         p3_river = (
-            hand_rank_symbols[Solver.rank_hand(table, self.hole_cards["P3"]).rank]
+            hand_rank_symbols[Solver.__rank_hand(table, self.hole_cards["P3"]).rank]
             + "\033[0m"
         )
 

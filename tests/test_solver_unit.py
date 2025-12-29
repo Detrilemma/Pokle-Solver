@@ -605,7 +605,7 @@ class TestCompareTablesMethod:
 
 class TestRankHandBestHandTuple:
     """Test that rank_hand returns correct best_hand tuples.
-    
+
     These tests ensure that the best_hand tuple contains the correct number
     of cards for each hand type. This is critical because the solver uses
     best_hand to track which cards are used in card_used_accumulated,
@@ -614,33 +614,33 @@ class TestRankHandBestHandTuple:
 
     def test_high_card_best_hand_has_5_cards(self):
         """Test that high card returns exactly 5 cards in best_hand."""
-        table = [Card(2, 'H'), Card(5, 'D'), Card(9, 'S')]
-        hole = [Card(10, 'C'), Card(13, 'H')]
-        
+        table = [Card(2, "H"), Card(5, "D"), Card(9, "S")]
+        hole = [Card(10, "C"), Card(13, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 1  # High card
         assert len(ranking.best_hand) == 5
         assert ranking.tie_breakers == (13, 10, 9, 5, 2)
 
     def test_one_pair_best_hand_has_2_cards(self):
         """Test that one pair returns exactly 2 cards in best_hand."""
-        table = [Card(10, 'H'), Card(10, 'D'), Card(5, 'S')]
-        hole = [Card(7, 'C'), Card(13, 'H')]
-        
+        table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
+        hole = [Card(7, "C"), Card(13, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 2  # One pair
         assert len(ranking.best_hand) == 2
         assert all(c.rank == 10 for c in ranking.best_hand)
 
     def test_two_pair_best_hand_has_4_cards(self):
         """Test that two pair returns exactly 4 cards in best_hand."""
-        table = [Card(10, 'H'), Card(10, 'D'), Card(5, 'S')]
-        hole = [Card(5, 'C'), Card(13, 'H')]
-        
+        table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
+        hole = [Card(5, "C"), Card(13, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 3  # Two pair
         assert len(ranking.best_hand) == 4
         # Should have two 10s and two 5s
@@ -649,29 +649,29 @@ class TestRankHandBestHandTuple:
 
     def test_three_of_a_kind_best_hand_has_3_cards(self):
         """Test that three of a kind returns exactly 3 cards in best_hand."""
-        table = [Card(10, 'H'), Card(10, 'D'), Card(10, 'S')]
-        hole = [Card(7, 'C'), Card(13, 'H')]
-        
+        table = [Card(10, "H"), Card(10, "D"), Card(10, "S")]
+        hole = [Card(7, "C"), Card(13, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 4  # Three of a kind
         assert len(ranking.best_hand) == 3
         assert all(c.rank == 10 for c in ranking.best_hand)
 
     def test_straight_best_hand_has_5_cards(self):
         """Test that straight returns exactly 5 cards in best_hand."""
-        table = [Card(10, 'H'), Card(11, 'D'), Card(12, 'S')]
-        hole = [Card(13, 'C'), Card(14, 'H')]
-        
+        table = [Card(10, "H"), Card(11, "D"), Card(12, "S")]
+        hole = [Card(13, "C"), Card(14, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
         assert ranking.tie_breakers == (14,)  # Ace-high straight
 
     def test_straight_with_duplicate_ranks_includes_all_needed_cards(self):
         """Test that straight includes cards even with duplicate ranks on board.
-        
+
         This test is critical because when there are duplicate ranks in the
         straight range, the cards_used_accumulated set must include the right
         cards to pass validation. Previously, an optimization incorrectly
@@ -679,11 +679,17 @@ class TestRankHandBestHandTuple:
         incorrect table counts.
         """
         # Board has two 10s, both in the straight range
-        table = [Card(10, 'H'), Card(10, 'C'), Card(11, 'D'), Card(12, 'S'), Card(13, 'H')]
-        hole = [Card(14, 'H'), Card(2, 'D')]
-        
+        table = [
+            Card(10, "H"),
+            Card(10, "C"),
+            Card(11, "D"),
+            Card(12, "S"),
+            Card(13, "H"),
+        ]
+        hole = [Card(14, "H"), Card(2, "D")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
         # Best hand should contain 5 cards from the straight (10-14)
@@ -692,33 +698,33 @@ class TestRankHandBestHandTuple:
 
     def test_ace_low_straight_best_hand_has_5_cards(self):
         """Test that ace-low straight (wheel) returns exactly 5 cards."""
-        table = [Card(2, 'H'), Card(3, 'D'), Card(4, 'S')]
-        hole = [Card(5, 'C'), Card(14, 'H')]
-        
+        table = [Card(2, "H"), Card(3, "D"), Card(4, "S")]
+        hole = [Card(5, "C"), Card(14, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 5  # Straight
         assert len(ranking.best_hand) == 5
         assert ranking.tie_breakers == (5,)  # 5-high (wheel)
 
     def test_flush_best_hand_has_5_cards(self):
         """Test that flush returns exactly 5 cards in best_hand."""
-        table = [Card(2, 'H'), Card(5, 'H'), Card(9, 'H')]
-        hole = [Card(11, 'H'), Card(13, 'H')]
-        
+        table = [Card(2, "H"), Card(5, "H"), Card(9, "H")]
+        hole = [Card(11, "H"), Card(13, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 6  # Flush
         assert len(ranking.best_hand) == 5
-        assert all(c.suit == 'H' for c in ranking.best_hand)
+        assert all(c.suit == "H" for c in ranking.best_hand)
 
     def test_full_house_best_hand_has_5_cards(self):
         """Test that full house returns exactly 5 cards in best_hand."""
-        table = [Card(10, 'H'), Card(10, 'D'), Card(10, 'S')]
-        hole = [Card(5, 'C'), Card(5, 'H')]
-        
+        table = [Card(10, "H"), Card(10, "D"), Card(10, "S")]
+        hole = [Card(5, "C"), Card(5, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 7  # Full house
         assert len(ranking.best_hand) == 5
         # Should have three 10s and two 5s
@@ -727,38 +733,44 @@ class TestRankHandBestHandTuple:
 
     def test_four_of_a_kind_best_hand_has_4_cards(self):
         """Test that four of a kind returns exactly 4 cards in best_hand."""
-        table = [Card(10, 'H'), Card(10, 'D'), Card(10, 'S'), Card(10, 'C'), Card(5, 'C')]
-        hole = [Card(7, 'H'), Card(2, 'D')]
-        
+        table = [
+            Card(10, "H"),
+            Card(10, "D"),
+            Card(10, "S"),
+            Card(10, "C"),
+            Card(5, "C"),
+        ]
+        hole = [Card(7, "H"), Card(2, "D")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 8  # Four of a kind
         assert len(ranking.best_hand) == 4
         assert all(c.rank == 10 for c in ranking.best_hand)
 
     def test_straight_flush_best_hand_has_5_cards(self):
         """Test that straight flush returns exactly 5 cards in best_hand."""
-        table = [Card(10, 'H'), Card(11, 'H'), Card(12, 'H')]
-        hole = [Card(13, 'H'), Card(14, 'H')]
-        
+        table = [Card(10, "H"), Card(11, "H"), Card(12, "H")]
+        hole = [Card(13, "H"), Card(14, "H")]
+
         ranking = Solver.rank_hand(table, hole)
-        
+
         assert ranking.rank == 9  # Straight flush
         assert len(ranking.best_hand) == 5
-        assert all(c.suit == 'H' for c in ranking.best_hand)
+        assert all(c.suit == "H" for c in ranking.best_hand)
         assert ranking.tie_breakers == (14,)
 
 
 class TestSolverTableCountRegression:
     """Regression tests to ensure solver returns correct number of possible tables.
-    
+
     These tests verify that optimizations to rank_hand don't inadvertently change
     the solver's output by affecting the cards_used_accumulated validation logic.
     """
 
     def test_specific_scenario_returns_1474_tables(self):
         """Test the specific scenario that previously returned 1468 instead of 1474.
-        
+
         This regression test ensures that when rank_hand was optimized, it still
         produces the exact same solver results. The bug was that best_hand for
         high card only returned 1 card instead of 5, which affected cards_used_accumulated.
@@ -773,13 +785,13 @@ class TestSolverTableCountRegression:
 
         solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
         possible_tables = solver.solve()
-        
+
         # The critical assertion: must find exactly 1474 possible tables
         assert len(possible_tables) == 1474
 
     def test_solver_produces_consistent_results_across_runs(self):
         """Test that solver produces identical results across multiple runs.
-        
+
         This ensures that any card selection in rank_hand is deterministic.
         """
         p1_hole = [Card.from_string("7C"), Card.from_string("9D")]
@@ -796,7 +808,7 @@ class TestSolverTableCountRegression:
             solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
             possible_tables = solver.solve()
             results.append(len(possible_tables))
-        
+
         # All runs should produce identical counts
         assert all(count == results[0] for count in results)
         assert results[0] == 1474
