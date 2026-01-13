@@ -735,7 +735,7 @@ class Solver:
 
         return updated_flop + table[FLOP_SIZE:]
 
-    def get_maxh_table(self):
+    def get_maxh_table(self, sample_size: Optional[int] = None):
         """Calculate the table with highest entropy from all possible rivers.
 
         For large river sets (>1000), uses sampling to approximate entropy efficiently.
@@ -759,13 +759,23 @@ class Solver:
 
         self.__rivers_dict = dict(zip(rivers_str, rivers))
 
-        rivers_lf = pl.DataFrame(
+        rivers_df = pl.DataFrame(
             {"rivers_str": rivers_str, "rivers_index": rivers_index},
             schema={"rivers_str": pl.Utf8, "rivers_index": pl.Array(pl.Int8, 5)},
-        ).lazy()
-        self.__compared_tables = rivers_lf.join(
-            rivers_lf, how="cross", suffix="_answer"
         )
+        rivers_lf = rivers_df.lazy()
+
+        if sample_size:
+            sampled_rivers_lf = rivers_df.sample(
+                n=sample_size, with_replacement=False
+            ).lazy()
+            self.__compared_tables = sampled_rivers_lf.join(
+                rivers_lf, how="cross", suffix="_answer"
+            )
+        else:
+            self.__compared_tables = rivers_lf.join(
+                rivers_lf, how="cross", suffix="_answer"
+            )
 
         # For Array columns, we need to convert to numpy arrays for guvectorize
         self.__compared_tables = self.__compared_tables.with_columns(
@@ -811,6 +821,10 @@ class Solver:
             .alias("entropy")
         )
         entropy_df = rivers_grouped.select(["rivers_str", "entropy"]).collect()
+
+        # TODO: Sampling experiments to validate accuracy vs performance tradeoff
+        self.__entropy_df = entropy_df
+
         max_entropy_river = (
             entropy_df.filter(pl.col("entropy") == pl.col("entropy").max())
             .select("rivers_str")
@@ -825,6 +839,17 @@ class Solver:
             self.__print_maxh_table = self.__maxh_table.copy()
 
         return self.__print_maxh_table
+    
+    @property
+    def entropy_df(self):
+        """Get the DataFrame of entropy values for all possible guesses.
+
+        Returns:
+            pl.DataFrame: DataFrame with columns 'rivers_str' and 'entropy'.
+        """
+        return self.__entropy_df
+
+
 
     def next_table_guess(self, table_colors: list):
         """Filter valid rivers based on color feedback from the current guess.

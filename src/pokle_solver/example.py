@@ -33,6 +33,7 @@ else:
 
 from dataclasses import dataclass
 from typing import List, Optional
+import polars as pl
 
 
 @dataclass
@@ -234,4 +235,4 @@ def sandbox():
 
 
 if __name__ == "__main__":
-    sandbox()
+    sample_sandbox()
