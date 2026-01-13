@@ -6,6 +6,9 @@ scenarios. Useful for development and testing.
 This script can be run either as a module (python -m pokle_solver.example)
 or directly as a script (python example.py).
 
+Classes:
+    PokleTestCase: Configuration for a Pokle game scenario
+
 Functions:
     sandbox: Run solver with example configuration
 """
@@ -28,62 +31,182 @@ else:
     from .card import Card
     from .solver import Solver
 
+from dataclasses import dataclass
+from typing import List, Optional
+
+
+@dataclass
+class PokleTestCase:
+    """Configuration for a Pokle game scenario.
+    
+    Attributes:
+        name: Descriptive name for this test case
+        p1_hole: Player 1's hole cards (list of Card objects)
+        p2_hole: Player 2's hole cards (list of Card objects)
+        p3_hole: Player 3's hole cards (list of Card objects)
+        flop_rankings: Hand rankings at flop [1=best, 2=second, 3=third]
+        turn_rankings: Hand rankings at turn [1=best, 2=second, 3=third]
+        river_rankings: Hand rankings at river [1=best, 2=second, 3=third]
+        expected_rivers: Expected number of valid rivers (for validation)
+    """
+    name: str
+    p1_hole: List[Card]
+    p2_hole: List[Card]
+    p3_hole: List[Card]
+    flop_rankings: List[int]
+    turn_rankings: List[int]
+    river_rankings: List[int]
+    expected_rivers: Optional[int] = None  # Optional: for validation
+    
+    def __post_init__(self):
+        """Validate that all hole cards are Card objects and rankings are valid."""
+        # Validate hole cards are Card objects
+        for player, holes in [("P1", self.p1_hole), ("P2", self.p2_hole), ("P3", self.p3_hole)]:
+            if not isinstance(holes, list) or len(holes) != 2:
+                raise ValueError(f"{player} hole cards must be a list of 2 cards")
+            if not all(isinstance(card, Card) for card in holes):
+                raise ValueError(f"All {player} hole cards must be Card objects")
+        
+        # Validate rankings
+        for phase, rankings in [
+            ("flop", self.flop_rankings),
+            ("turn", self.turn_rankings),
+            ("river", self.river_rankings),
+        ]:
+            if sorted(rankings) != [1, 2, 3]:
+                raise ValueError(
+                    f"{phase} rankings must be a permutation of [1, 2, 3], got {rankings}"
+                )
+    
+    @classmethod
+    def from_strings(
+        cls,
+        name: str,
+        p1_hole_strs: List[str],
+        p2_hole_strs: List[str],
+        p3_hole_strs: List[str],
+        flop_rankings: List[int],
+        turn_rankings: List[int],
+        river_rankings: List[int],
+        expected_rivers: Optional[int] = None,
+    ):
+        """Create test case from string card representations.
+        
+        Args:
+            name: Test case name
+            p1_hole_strs: Player 1 hole cards as strings (e.g., ["KH", "6S"])
+            p2_hole_strs: Player 2 hole cards as strings
+            p3_hole_strs: Player 3 hole cards as strings
+            flop_rankings: Rankings at flop
+            turn_rankings: Rankings at turn
+            river_rankings: Rankings at river
+            expected_rivers: Expected number of valid rivers
+            
+        Returns:
+            PokleTestCase instance with Card objects
+        """
+        return cls(
+            name=name,
+            p1_hole=[Card.from_string(s) for s in p1_hole_strs],
+            p2_hole=[Card.from_string(s) for s in p2_hole_strs],
+            p3_hole=[Card.from_string(s) for s in p3_hole_strs],
+            flop_rankings=flop_rankings,
+            turn_rankings=turn_rankings,
+            river_rankings=river_rankings,
+            expected_rivers=expected_rivers,
+        )
+    
+    def create_solver(self) -> Solver:
+        """Create a Solver instance from this test case."""
+        return Solver(
+            self.p1_hole,
+            self.p2_hole,
+            self.p3_hole,
+            self.flop_rankings,
+            self.turn_rankings,
+            self.river_rankings,
+        )
+
+
+# Pre-configured test cases for calibration study
+TEST_CASES = {
+    "first_example": PokleTestCase.from_strings(
+        name="First Example",
+        p1_hole_strs=["6H", "8H"],
+        p2_hole_strs=["QS", "JC"],
+        p3_hole_strs=["4H", "JD"],
+        flop_rankings=[2, 1, 3],
+        turn_rankings=[2, 3, 1],
+        river_rankings=[3, 2, 1],
+    ),
+    "fast_example": PokleTestCase.from_strings(
+        name="Fast Example",
+        p1_hole_strs=["QD", "QC"],
+        p2_hole_strs=["10H", "2H"],
+        p3_hole_strs=["9H", "KH"],
+        flop_rankings=[2, 1, 3],
+        turn_rankings=[1, 3, 2],
+        river_rankings=[2, 1, 3],
+    ),
+    "example_12_14": PokleTestCase.from_strings(
+        name="Example 12/14",
+        p1_hole_strs=["4D", "AH"],
+        p2_hole_strs=["8C", "QS"],
+        p3_hole_strs=["9D", "JS"],
+        flop_rankings=[3, 2, 1],
+        turn_rankings=[2, 3, 1],
+        river_rankings=[3, 2, 1],
+    ),
+    "example_12_25": PokleTestCase.from_strings(
+        name="Example 12/25",
+        p1_hole_strs=["7C", "9D"],
+        p2_hole_strs=["KH", "KS"],
+        p3_hole_strs=["8D", "4S"],
+        flop_rankings=[1, 2, 3],
+        turn_rankings=[3, 1, 2],
+        river_rankings=[2, 3, 1],
+    ),
+    "example_1_12": PokleTestCase.from_strings(
+        name="Example 1/12 - Current",
+        p1_hole_strs=["6D", "JC"],
+        p2_hole_strs=["10S", "QS"],
+        p3_hole_strs=["4C", "4D"],
+        flop_rankings=[1, 3, 2],
+        turn_rankings=[1, 2, 3],
+        river_rankings=[2, 1, 3],
+    ),
+    "slow_output": PokleTestCase.from_strings(
+        name="Slow Output Test",
+        p1_hole_strs=["KH", "6S"],
+        p2_hole_strs=["8C", "8H"],
+        p3_hole_strs=["4H", "9S"],
+        flop_rankings=[2, 3, 1],
+        turn_rankings=[3, 2, 1],
+        river_rankings=[3, 1, 2],
+    ),
+    "very_slow": PokleTestCase.from_strings(
+        name="Very Slow Output Test",
+        p1_hole_strs=["JH", "6H"],
+        p2_hole_strs=["4H", "7S"],
+        p3_hole_strs=["5D", "8D"],
+        flop_rankings=[3, 2, 1],
+        turn_rankings=[2, 3, 1],
+        river_rankings=[2, 1, 3],
+    ),
+}
+def sample_sandbox():
+    for test_name, test_case in TEST_CASES.items():
+        print(f"Running test case: {test_name} - {test_case.name}")
+        solver = test_case.create_solver()
+        possible_tables = solver.solve()
+        print(f"Possible tables found: {len(possible_tables)}")
 
 def sandbox():
-    # p1_hole = [Card.from_string("6H"), Card.from_string("8H")]
-    # p2_hole = [Card.from_string("QS"), Card.from_string("JC")]
-    # p3_hole = [Card.from_string("4H"), Card.from_string("JD")]
-
-    # flop = [2, 1, 3]
-    # turn = [2, 3, 1]
-    # river = [3, 2, 1]
-
-    # slow output for testing
-    # p1_hole = [Card.from_string("KH"), Card.from_string("6S")]
-    # p2_hole = [Card.from_string("8C"), Card.from_string("8H")]
-    # p3_hole = [Card.from_string("4H"), Card.from_string("9S")]
-
-    # flop = [2, 3, 1]
-    # turn = [3, 2, 1]
-    # river = [3, 1, 2]
-
-    # fast example
-    # p1_hole = [Card.from_string("QD"), Card.from_string("QC")]
-    # p2_hole = [Card.from_string("10H"), Card.from_string("2H")]
-    # p3_hole = [Card.from_string("9H"), Card.from_string("KH")]
-
-    # flop = [2, 1, 3]
-    # turn = [1, 3, 2]
-    # river = [2, 1, 3]
-
-    #  super slow output for testing
-    # p1_hole = [Card.from_string("JH"), Card.from_string("6H")]
-    # p2_hole = [Card.from_string("4H"), Card.from_string("7S")]
-    # p3_hole = [Card.from_string("5D"), Card.from_string("8D")]
-
-    # flop = [3, 2, 1]
-    # turn = [2, 3, 1]
-    # river = [2, 1, 3]
-
-    # recent example 12/14
-    # p1_hole = [Card.from_string("4D"), Card.from_string("AH")]
-    # p2_hole = [Card.from_string("8C"), Card.from_string("QS")]
-    # p3_hole = [Card.from_string("9D"), Card.from_string("JS")]
-
-    # flop = [3, 2, 1]
-    # turn = [2, 3, 1]
-    # river = [3, 2, 1]
-
-    # recent example 12/25
-    p1_hole = [Card.from_string("7C"), Card.from_string("9D")]
-    p2_hole = [Card.from_string("KH"), Card.from_string("KS")]
-    p3_hole = [Card.from_string("8D"), Card.from_string("4S")]
-
-    flop = [1, 2, 3]
-    turn = [3, 1, 2]
-    river = [2, 3, 1]
-
-    solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
+    """Interactive game loop using pre-configured test case."""
+    # Use current example (1/12)
+    test_case = TEST_CASES["example_1_12"]
+    
+    solver = test_case.create_solver()
     possible_tables = solver.solve()
     print(f"Possible tables found: {len(possible_tables)}")
     solver.print_game(solver.get_maxh_table())

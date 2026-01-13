@@ -63,10 +63,7 @@ def cli():
             if sorted(hand_ranks) != ["1", "2", "3"]:
                 raise ValueError("Please enter valid ranks (1, 2, 3) for each player.")
             hand_ranks = [int(rank) for rank in hand_ranks]
-            temp_hand_ranks = hand_ranks.copy()
-            hand_ranks[:] = [
-                temp_hand_ranks.index(i) + 1 for i in range(1, len(temp_hand_ranks) + 1)
-            ]
+            hand_ranks = [i for i, _ in sorted(enumerate(hand_ranks, start=1), key=lambda x: x[1])]
             hand_ranks_list.append(hand_ranks)
             game_phase_number += 1
         except ValueError as e:
