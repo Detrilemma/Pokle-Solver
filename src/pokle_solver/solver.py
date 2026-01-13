@@ -400,13 +400,11 @@ class Solver:
         if three_ranks:
             max_three = max(three_ranks)
             three_of_a_kind = rank_groups[max_three]
-            # Get kickers from rank_groups directly
-            kicker_ranks = sorted(
-                (r for r in rank_groups.keys() if r != max_three), reverse=True
-            )[:2]
+            remaining = sorted(set(cards) - set(three_of_a_kind), reverse=True)
+            remaining_ranks = [c.rank for c in remaining[:2]]
             return HandRanking(
                 HAND_RANK_THREE_KIND,
-                tuple([max_three] + kicker_ranks),
+                tuple([max_three] + remaining_ranks),
                 tuple(three_of_a_kind),
             )
 
@@ -414,9 +412,8 @@ class Solver:
         if len(pair_ranks) >= 2:
             pair_ranks.sort(reverse=True)
             two_pair = rank_groups[pair_ranks[0]] + rank_groups[pair_ranks[1]]
-            # Get kicker from remaining ranks
-            kicker_ranks = [r for r in rank_groups.keys() if r not in pair_ranks[:2]]
-            remaining_rank = max(kicker_ranks) if kicker_ranks else 0
+            remaining = sorted(set(cards) - set(two_pair), reverse=True)
+            remaining_rank = remaining[0].rank if remaining else 0
             return HandRanking(
                 HAND_RANK_TWO_PAIR,
                 tuple([pair_ranks[0], pair_ranks[1], remaining_rank]),
@@ -427,21 +424,17 @@ class Solver:
         if pair_ranks:
             pair_rank = pair_ranks[0]
             pair = rank_groups[pair_rank]
-            # Get kickers from rank_groups directly
-            kicker_ranks = sorted(
-                (r for r in rank_groups.keys() if r != pair_rank), reverse=True
-            )[:3]
-            return HandRanking(
-                HAND_RANK_PAIR, tuple([pair_rank] + kicker_ranks), tuple(pair)
-            )
+            remaining = sorted(set(cards) - set(pair), reverse=True)
+            remaining_ranks = [c.rank for c in remaining[:3]]
+            return HandRanking(HAND_RANK_PAIR, tuple([pair_rank] + remaining_ranks), tuple(pair))
 
-        # High card - use pre-sorted unique ranks and get best card of each rank
-        best_hand = [rank_groups[r][0] for r in unique_ranks[:5]]
+        # High card
+        best_hand = sorted(cards, reverse=True)[:5]
         best_hand_ranks = tuple(c.rank for c in best_hand)
         return HandRanking(
             HAND_RANK_HIGH_CARD,
             best_hand_ranks,
-            tuple(best_hand),
+            tuple([best_hand[0]]),
         )
 
     def __possible_flops(self):

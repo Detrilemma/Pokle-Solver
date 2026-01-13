@@ -608,14 +608,15 @@ class TestRankHandBestHandTuple:
     """
 
     def test_high_card_best_hand_has_5_cards(self):
-        """Test that high card returns exactly 5 cards in best_hand."""
+        """Test that high card returns exactly 1 card in best_hand (the high card itself)."""
         table = [Card(2, "H"), Card(5, "D"), Card(9, "S")]
         hole = [Card(10, "C"), Card(13, "H")]
 
         ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 1  # High card
-        assert len(ranking.best_hand) == 5
+        assert len(ranking.best_hand) == 1  # Only stores the high card
+        assert ranking.best_hand[0].rank == 13  # King is the high card
         assert ranking.tie_breakers == (13, 10, 9, 5, 2)
 
     def test_one_pair_best_hand_has_2_cards(self):
@@ -807,3 +808,112 @@ class TestSolverTableCountRegression:
         # All runs should produce identical counts
         assert all(count == results[0] for count in results)
         assert results[0] == 1474
+
+
+class TestSolverTableCountRegressionKickerBug:
+    """Regression tests for the kicker card bug found on Jan 13, 2026.
+    
+    This bug was introduced in commit 1901440 on Dec 28, 2025 when the
+    rank_hand method was 'optimized'. The buggy version produced incorrect
+    kicker selection for pairs, two pairs, and three of a kind, causing
+    the solver to accept invalid tables where not all table cards were used.
+    
+    These tests validate the exact table counts for scenarios that caught
+    the bug: slow_output and very_slow.
+    """
+
+    def test_slow_output_scenario_exact_count(self):
+        """Test that slow_output scenario produces exactly 1,323 tables.
+        
+        This was the primary test case that caught the bug:
+        - Buggy version: 20,873 tables (15.8x too many)
+        - Correct version: 1,323 tables
+        """
+        p1 = [Card.from_string("KH"), Card.from_string("6S")]
+        p2 = [Card.from_string("8C"), Card.from_string("8H")]
+        p3 = [Card.from_string("4H"), Card.from_string("9S")]
+        
+        solver = Solver(p1, p2, p3, [2, 3, 1], [3, 2, 1], [3, 1, 2])
+        tables = solver.solve()
+        
+        assert len(tables) == 1323, (
+            f"slow_output scenario should produce exactly 1,323 tables, "
+            f"but got {len(tables)}. This may indicate a regression in "
+            f"kicker card selection logic."
+        )
+
+    def test_very_slow_scenario_exact_count(self):
+        """Test that very_slow scenario produces exactly 7,606 tables.
+        
+        This was the secondary test case that confirmed the bug:
+        - Buggy version: 14,528 tables (1.9x too many)
+        - Correct version: 7,606 tables
+        """
+        p1 = [Card.from_string("JH"), Card.from_string("6H")]
+        p2 = [Card.from_string("4H"), Card.from_string("7S")]
+        p3 = [Card.from_string("5D"), Card.from_string("8D")]
+        
+        solver = Solver(p1, p2, p3, [3, 2, 1], [2, 3, 1], [2, 1, 3])
+        tables = solver.solve()
+        
+        assert len(tables) == 7606, (
+            f"very_slow scenario should produce exactly 7,606 tables, "
+            f"but got {len(tables)}. This may indicate a regression in "
+            f"kicker card selection logic."
+        )
+
+    def test_kicker_sorting_with_multiple_same_rank_cards(self):
+        """Test that kicker selection works correctly when multiple cards share ranks.
+        
+        The bug was caused by sorting ranks directly instead of sorting cards
+        and then extracting ranks. This test verifies correct behavior when
+        there are multiple cards of the same rank among potential kickers.
+        """
+        # Setup: Three of a kind (10s) with distinct kickers (7, 5, 4, 3)
+        table = [Card(10, "H"), Card(10, "D"), Card(10, "S"), Card(7, "H"), Card(5, "C")]
+        hole = [Card(4, "D"), Card(3, "S")]
+        
+        ranking = Solver._Solver__rank_hand(table, hole)
+        
+        # Should be three of a kind (rank 4)
+        assert ranking.rank == 4
+        # Kickers should be the two highest ranks from non-trips: 7 and 5
+        assert ranking.tie_breakers == (10, 7, 5)
+        # best_hand should only contain the three 10s
+        assert len(ranking.best_hand) == 3
+        assert all(c.rank == 10 for c in ranking.best_hand)
+
+    def test_two_pair_kicker_selection_deterministic(self):
+        """Test that two pair kicker is selected deterministically.
+        
+        The bug affected how the kicker was selected from remaining cards.
+        This ensures the highest kicker is always chosen correctly.
+        """
+        # Two pair: 10s and 5s, with kicker options 8, 3, 2
+        table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
+        hole = [Card(5, "H"), Card(8, "C")]
+        extra_cards = [Card(3, "C"), Card(2, "D")]
+        
+        ranking = Solver._Solver__rank_hand(table + extra_cards, hole)
+        
+        assert ranking.rank == 3  # Two pair
+        assert ranking.tie_breakers == (10, 5, 8)  # Should pick 8 as kicker, not 3 or 2
+        assert len(ranking.best_hand) == 4  # Only the two pairs
+
+    def test_one_pair_multiple_kickers_correct_order(self):
+        """Test that one pair selects kickers in correct descending order.
+        
+        The buggy version could select kickers in wrong order when using
+        rank_groups.keys() directly instead of sorting actual cards.
+        """
+        # One pair of 10s with kickers 14, 9, 5, 3, 2
+        table = [Card(10, "H"), Card(10, "D"), Card(9, "S")]
+        hole = [Card(14, "H"), Card(5, "C")]
+        extra_cards = [Card(3, "D"), Card(2, "S")]
+        
+        ranking = Solver._Solver__rank_hand(table + extra_cards, hole)
+        
+        assert ranking.rank == 2  # One pair
+        # Kickers should be top 3: Ace (14), 9, 5
+        assert ranking.tie_breakers == (10, 14, 9, 5)
+        assert len(ranking.best_hand) == 2  # Only the pair

@@ -168,7 +168,7 @@ TEST_CASES = {
         river_rankings=[2, 3, 1],
     ),
     "example_1_12": PokleTestCase.from_strings(
-        name="Example 1/12 - Current",
+        name="Example 1/12",
         p1_hole_strs=["6D", "JC"],
         p2_hole_strs=["10S", "QS"],
         p3_hole_strs=["4C", "4D"],
@@ -194,6 +194,15 @@ TEST_CASES = {
         turn_rankings=[2, 3, 1],
         river_rankings=[2, 1, 3],
     ),
+    "example_1_13": PokleTestCase.from_strings(
+        name="Example 1/13",
+        p1_hole_strs=["AD", "QH"],
+        p2_hole_strs=["8C", "4C"],
+        p3_hole_strs=["9C", "7D"],
+        flop_rankings=[1, 2, 3],
+        turn_rankings=[2, 1, 3],
+        river_rankings=[2, 1, 3],
+    )
 }
 def sample_sandbox():
     for test_name, test_case in TEST_CASES.items():

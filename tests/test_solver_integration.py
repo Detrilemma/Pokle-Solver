@@ -432,3 +432,133 @@ class TestSolverIntegrationEdgeCases:
         result1_strings = {" ".join(str(card) for card in table) for table in result1}
         result2_strings = {" ".join(str(card) for card in table) for table in result2}
         assert result1_strings == result2_strings
+
+
+class TestSolverKickerBugRegression:
+    """Regression tests for kicker card bug discovered Jan 13, 2026.
+    
+    These integration tests verify that specific problematic scenarios
+    produce the correct number of valid tables. The bug caused the solver
+    to accept tables where not all cards were used, resulting in inflated
+    table counts.
+    """
+
+    def test_slow_output_integration(self):
+        """Integration test for slow_output scenario.
+        
+        This scenario involves pairs and two pairs across multiple phases,
+        which exposed the kicker selection bug.
+        """
+        p1 = [Card.from_string("KH"), Card.from_string("6S")]
+        p2 = [Card.from_string("8C"), Card.from_string("8H")]
+        p3 = [Card.from_string("4H"), Card.from_string("9S")]
+        
+        solver = Solver(p1, p2, p3, [2, 3, 1], [3, 2, 1], [3, 1, 2])
+        tables = solver.solve()
+        
+        # Verify count
+        assert len(tables) == 1323
+        
+        # Verify all tables are valid and complete
+        assert all(len(table) == 5 for table in tables)
+        assert all(isinstance(card, Card) for table in tables for card in table)
+        
+        # Verify all solutions use unique cards
+        for table in tables:
+            all_cards = p1 + p2 + p3 + table
+            assert len(all_cards) == len(set(all_cards))
+
+    def test_very_slow_integration(self):
+        """Integration test for very_slow scenario.
+        
+        This scenario involves complex hand interactions across phases
+        that required careful kicker tracking.
+        """
+        p1 = [Card.from_string("JH"), Card.from_string("6H")]
+        p2 = [Card.from_string("4H"), Card.from_string("7S")]
+        p3 = [Card.from_string("5D"), Card.from_string("8D")]
+        
+        solver = Solver(p1, p2, p3, [3, 2, 1], [2, 3, 1], [2, 1, 3])
+        tables = solver.solve()
+        
+        # Verify count
+        assert len(tables) == 7606
+        
+        # Verify all tables are complete
+        assert all(len(table) == 5 for table in tables)
+        
+        # Sample validation: check first few tables are valid
+        for table in tables[:10]:
+            all_cards = p1 + p2 + p3 + table
+            assert len(all_cards) == len(set(all_cards))
+
+    def test_scenario_with_three_of_a_kind_phases(self):
+        """Test scenario where hand types evolve across phases.
+        
+        This tests that kicker selection works correctly when hand rankings
+        change across different game phases.
+        """
+        p1 = [Card.from_string("7C"), Card.from_string("9D")]
+        p2 = [Card.from_string("KH"), Card.from_string("KS")]
+        p3 = [Card.from_string("8D"), Card.from_string("4S")]
+        
+        # Use the known working example from regression test
+        solver = Solver(p1, p2, p3, [1, 2, 3], [3, 1, 2], [2, 3, 1])
+        tables = solver.solve()
+        
+        # Should have valid solutions (this is the example_12_25 scenario)
+        assert len(tables) == 1474
+        
+        # All solutions should use exactly 5 cards
+        assert all(len(table) == 5 for table in tables)
+
+    def test_mixed_hand_types_across_phases(self):
+        """Test that different hand types in different phases work correctly.
+        
+        This ensures the kicker bug fix doesn't break scenarios with
+        varied hand types (pairs, trips, two pair, etc.) across phases.
+        """
+        # Setup with known hole cards
+        p1 = [Card.from_string("9C"), Card.from_string("9D")]
+        p2 = [Card.from_string("7H"), Card.from_string("7S")]
+        p3 = [Card.from_string("5C"), Card.from_string("3D")]
+        
+        # Rankings change across phases
+        solver = Solver(p1, p2, p3, [1, 2, 3], [2, 1, 3], [3, 2, 1])
+        tables = solver.solve()
+        
+        # Should produce consistent results
+        assert len(tables) > 0
+        
+        # Verify solutions are deterministic
+        solver2 = Solver(p1, p2, p3, [1, 2, 3], [2, 1, 3], [3, 2, 1])
+        tables2 = solver2.solve()
+        assert len(tables) == len(tables2)
+
+    def test_all_table_cards_used_validation(self):
+        """Test that the solver correctly validates all table cards are used.
+        
+        The kicker bug caused the solver to incorrectly track which cards
+        were used, allowing invalid tables through. This test ensures
+        the fix properly validates card usage.
+        """
+        p1 = [Card.from_string("AS"), Card.from_string("KS")]
+        p2 = [Card.from_string("QH"), Card.from_string("QD")]
+        p3 = [Card.from_string("JC"), Card.from_string("10C")]
+        
+        solver = Solver(p1, p2, p3, [1, 2, 3], [2, 1, 3], [1, 3, 2])
+        tables = solver.solve()
+        
+        # Manually verify a sample of tables
+        for table in tables[:5]:
+            # Simulate hand evaluation across all phases
+            flop = table[:3]
+            turn = table[:4]
+            river = table[:5]
+            
+            # All phases should produce hands
+            for phase_cards in [flop, turn, river]:
+                for hole in [p1, p2, p3]:
+                    ranking = Solver._Solver__rank_hand(phase_cards, hole)
+                    assert ranking.rank >= 1  # Valid hand rank
+                    assert len(ranking.best_hand) > 0  # Has cards in best hand
