@@ -32,7 +32,7 @@ else:
     from .solver import Solver
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Tuple, cast
 import polars as pl
 
 
@@ -204,17 +204,11 @@ TEST_CASES = {
         river_rankings=[2, 1, 3],
     )
 }
-def sample_sandbox():
-    for test_name, test_case in TEST_CASES.items():
-        print(f"Running test case: {test_name} - {test_case.name}")
-        solver = test_case.create_solver()
-        possible_tables = solver.solve()
-        print(f"Possible tables found: {len(possible_tables)}")
 
 def sandbox():
     """Interactive game loop using pre-configured test case."""
-    # Use current example (1/12)
-    test_case = TEST_CASES["example_1_12"]
+    # Use current example (1/13)
+    test_case = TEST_CASES["example_1_13"]
     
     solver = test_case.create_solver()
     possible_tables = solver.solve()
@@ -244,4 +238,4 @@ def sandbox():
 
 
 if __name__ == "__main__":
-    sample_sandbox()
+    sandbox()

@@ -728,15 +728,14 @@ class Solver:
 
         return updated_flop + table[FLOP_SIZE:]
 
-    def get_maxh_table(self, sample_size: Optional[int] = None):
+    def get_maxh_table(self, use_sampling: bool = True):
         """Calculate the table with highest entropy from all possible rivers.
 
         For large river sets (>1000), uses sampling to approximate entropy efficiently.
         For small sets, computes exact entropy.
 
         Args:
-            max_sample_size (int): Maximum number of answers to sample per guess (default 1000)
-            use_sampling (bool): Force sampling on/off. If None, auto-decide based on river count.
+            use_sampling (bool): Force sampling on/off. Defaults to True.
 
         Returns:
             List: The river with the highest entropy.
@@ -758,9 +757,9 @@ class Solver:
         )
         rivers_lf = rivers_df.lazy()
 
-        if sample_size:
+        if use_sampling and len(rivers) > 50:
             sampled_rivers_lf = rivers_df.sample(
-                n=sample_size, with_replacement=False
+                n=50, with_replacement=False
             ).lazy()
             self.__compared_tables = sampled_rivers_lf.join(
                 rivers_lf, how="cross", suffix="_answer"
@@ -814,10 +813,6 @@ class Solver:
             .alias("entropy")
         )
         entropy_df = rivers_grouped.select(["rivers_str", "entropy"]).collect()
-
-        # TODO: Sampling experiments to validate accuracy vs performance tradeoff
-        self.__entropy_df = entropy_df
-
         max_entropy_river = (
             entropy_df.filter(pl.col("entropy") == pl.col("entropy").max())
             .select("rivers_str")
@@ -833,17 +828,6 @@ class Solver:
 
         return self.__print_maxh_table
     
-    @property
-    def entropy_df(self):
-        """Get the DataFrame of entropy values for all possible guesses.
-
-        Returns:
-            pl.DataFrame: DataFrame with columns 'rivers_str' and 'entropy'.
-        """
-        return self.__entropy_df
-
-
-
     def next_table_guess(self, table_colors: list):
         """Filter valid rivers based on color feedback from the current guess.
 
