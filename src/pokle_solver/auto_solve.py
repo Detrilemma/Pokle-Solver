@@ -106,23 +106,19 @@ if __name__ == "__main__":
             # Get the feedback colors for the guessed table
             for i, card in enumerate(maxh_table):
                 rank_str = face_cards.get(card.rank, str(card.rank))
-                # Try the precise locator first. If Playwright raises a strict-mode
-                # error (or other locator issue), wait for the selector and try
-                # a fallback by waiting for the element and clicking it.
                 card_color = None
                 try:
                     card_color = page.locator(
-                        f'button.guess-button[active="false"][suit="{card.suit.lower()}"]',
-                        has_text=rank_str,
-                    ).get_attribute("card-color")
+                        f'button.guess-button[active="false"][index="{i}"]'
+                    ).last.get_attribute("card-color")
                 except Exception:
                     fallback = page.locator(
                         f'button.guess-button[active="false"][suit="{card.suit.lower()}"]',
                         has_text=rank_str,
                     )
-                    fallback.first.wait_for(state="attached", timeout=5000)
-                    fallback.first.click()
-                    card_color = fallback.first.get_attribute("card-color")
+                    fallback.last.wait_for(state="attached", timeout=5000)
+                    fallback.last.click()
+                    card_color = fallback.last.get_attribute("card-color")
 
                 card_colors[i] = (
                     colors_dict.get(card_color, card_colors[i])
