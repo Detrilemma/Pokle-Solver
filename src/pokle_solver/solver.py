@@ -629,19 +629,27 @@ class Solver:
             answer_flop = answer_table[:FLOP_SIZE]
 
             colors = [0, 0, 0, 0, 0]  # default to grey
+
+            # First pass: find all GREEN matches in flop (exact card matches)
+            # This must be done first so green matches "claim" their answer cards
+            # before yellow matching checks rank/suit
             for i in range(FLOP_SIZE):
                 if guess_table[i] in answer_flop:
                     colors[i] = 2  # green
                     answer_i = np.flatnonzero(answer_flop == guess_table[i])[0]
                     flop_answer_ranks[answer_i] = -1  # mark as used
                     flop_answer_suits[answer_i] = -1  # mark as used
-                elif (
+
+            # Second pass: find YELLOW matches in flop (rank or suit matches)
+            for i in range(FLOP_SIZE):
+                if colors[i] == 2:  # already green, skip
+                    continue
+                if (
                     guess_ranks[i] in flop_answer_ranks
                     or guess_suits[i] in flop_answer_suits
                 ):
                     colors[i] = 1  # yellow
-                else:
-                    colors[i] = 0  # grey
+                # else: stays 0 (grey)
 
             for i in range(FLOP_SIZE, RIVER_SIZE):
                 if guess_table[i] == answer_table[i]:

@@ -597,6 +597,46 @@ class TestCompareTablesMethod:
 
         assert result[0] == 0  # 00000
 
+    def test_compare_tables_green_match_priority_over_yellow(self):
+        """Test that green matches are found before yellow matches consume the card.
+
+        Regression test for bug where flop cards were processed sequentially,
+        allowing an earlier card to "steal" a suit match (yellow) before a later
+        card could claim its exact match (green).
+
+        Test case:
+        - guess=[4C, 9H, 2C, AD, 3D] (4C at position 0 shares suit with 2C)
+        - answer=[2C, 9S, 2S, 4S, 5S] (2C is in the answer's flop)
+
+        Without the fix (processing in order 0->1->2):
+        - Position 0 (4C): suit C matches 2C in answer -> yellow (WRONG - steals match)
+        - Position 2 (2C): 2C is in answer flop -> green, but answer's 2C already "used"
+
+        With the fix (green pass first, then yellow pass):
+        - First pass: 2C at position 2 matches answer's 2C -> green
+        - Second pass: 4C at position 0, suit C already claimed by green match -> grey
+
+        Expected: [grey, yellow, green, grey, grey] = 01200
+        - 4C: grey (suit C was claimed by 2C's green match)
+        - 9H: yellow (rank 9 matches 9S in answer flop)
+        - 2C: green (exact match in answer flop)
+        - AD: grey (no match)
+        - 3D: grey (no match)
+        """
+        guess = [Card.from_string(c) for c in ["4C", "9H", "2C", "AD", "3D"]]
+        answer = [Card.from_string(c) for c in ["2C", "9S", "2S", "4S", "5S"]]
+        guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+        answer_index = np.array([[card.card_index for card in answer]], dtype=np.int8)
+
+        result = np.zeros(1, dtype=np.int16)
+        Solver._Solver__compare_tables(guess_index, answer_index, result)  # type: ignore[attr-defined]
+
+        # Expected: grey=0, yellow=1, green=2, grey=0, grey=0 -> 01200
+        assert result[0] == 1200, (
+            f"Expected 01200 (grey, yellow, green, grey, grey) but got {result[0]:05d}. "
+            "Green matches should be found before yellow matches consume the answer card."
+        )
+
 
 class TestRankHandBestHandTuple:
     """Test that rank_hand returns correct best_hand tuples.

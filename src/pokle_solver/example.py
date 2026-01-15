@@ -207,6 +207,24 @@ TEST_CASES = {
         turn_rankings=[2, 1, 3],
         river_rankings=[2, 1, 3],
     ),
+    "example_1_14": PokleTestCase.from_strings(
+        name="Example 1/14",
+        p1_hole_strs=["3S", "AS"],
+        p2_hole_strs=["2H", "4D"],
+        p3_hole_strs=["QH", "9C"],
+        flop_rankings=[2, 3, 1],
+        turn_rankings=[2, 1, 3],
+        river_rankings=[1, 2, 3],
+    ),
+    "example_1_15": PokleTestCase.from_strings(
+        name="Example 1/15",
+        p1_hole_strs=["8H", "8S"],
+        p2_hole_strs=["9S", "QD"],
+        p3_hole_strs=["7C", "AS"],
+        flop_rankings=[3, 2, 1],
+        turn_rankings=[1, 3, 2],
+        river_rankings=[3, 1, 2],
+    ),
 }
 
 
@@ -218,9 +236,6 @@ def sandbox() -> None:
     solver = test_case.create_solver()
     possible_tables = solver.solve()
     print(f"Possible tables found: {len(possible_tables)}")
-    # maxh_table = solver.get_maxh_table(use_sampling=True)
-    # maxh_table = [card for card in maxh_table if card is not None]
-    # solver.print_game(maxh_table)
 
     card_colors = ["e" for _ in range(5)]
     is_all_green = False
@@ -243,9 +258,6 @@ def sandbox() -> None:
             solver.next_table_guess(card_colors)
             print(f"Possible tables remaining: {len(solver.valid_tables)}")
             is_all_green = all(color == "g" for color in card_colors)
-            # maxh_table = solver.get_maxh_table()
-            # maxh_table = [card for card in maxh_table if card is not None]
-            # solver.print_game(maxh_table)
         except ValueError as e:
             print(f"Error: {e}")
 
