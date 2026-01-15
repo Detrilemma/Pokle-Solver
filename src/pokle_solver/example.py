@@ -18,12 +18,12 @@ if __name__ == "__main__":
     # Running as script - use absolute imports with sys.path manipulation
     import sys
     from pathlib import Path
-    
+
     # Add parent directory to path so we can import pokle_solver
     src_path = Path(__file__).parent.parent
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
-    
+
     from pokle_solver.card import Card
     from pokle_solver.solver import Solver
 else:
@@ -32,14 +32,13 @@ else:
     from .solver import Solver
 
 from dataclasses import dataclass
-from typing import List, Optional, Tuple, cast
-import polars as pl
+from typing import List, Optional
 
 
 @dataclass
 class PokleTestCase:
     """Configuration for a Pokle game scenario.
-    
+
     Attributes:
         name: Descriptive name for this test case
         p1_hole: Player 1's hole cards (list of Card objects)
@@ -50,6 +49,7 @@ class PokleTestCase:
         river_rankings: Hand rankings at river [1=best, 2=second, 3=third]
         expected_rivers: Expected number of valid rivers (for validation)
     """
+
     name: str
     p1_hole: List[Card]
     p2_hole: List[Card]
@@ -58,16 +58,20 @@ class PokleTestCase:
     turn_rankings: List[int]
     river_rankings: List[int]
     expected_rivers: Optional[int] = None  # Optional: for validation
-    
-    def __post_init__(self):
+
+    def __post_init__(self) -> None:
         """Validate that all hole cards are Card objects and rankings are valid."""
         # Validate hole cards are Card objects
-        for player, holes in [("P1", self.p1_hole), ("P2", self.p2_hole), ("P3", self.p3_hole)]:
+        for player, holes in [
+            ("P1", self.p1_hole),
+            ("P2", self.p2_hole),
+            ("P3", self.p3_hole),
+        ]:
             if not isinstance(holes, list) or len(holes) != 2:
                 raise ValueError(f"{player} hole cards must be a list of 2 cards")
             if not all(isinstance(card, Card) for card in holes):
                 raise ValueError(f"All {player} hole cards must be Card objects")
-        
+
         # Validate rankings
         for phase, rankings in [
             ("flop", self.flop_rankings),
@@ -78,7 +82,7 @@ class PokleTestCase:
                 raise ValueError(
                     f"{phase} rankings must be a permutation of [1, 2, 3], got {rankings}"
                 )
-    
+
     @classmethod
     def from_strings(
         cls,
@@ -90,9 +94,9 @@ class PokleTestCase:
         turn_rankings: List[int],
         river_rankings: List[int],
         expected_rivers: Optional[int] = None,
-    ):
+    ) -> "PokleTestCase":
         """Create test case from string card representations.
-        
+
         Args:
             name: Test case name
             p1_hole_strs: Player 1 hole cards as strings (e.g., ["KH", "6S"])
@@ -102,7 +106,7 @@ class PokleTestCase:
             turn_rankings: Rankings at turn
             river_rankings: Rankings at river
             expected_rivers: Expected number of valid rivers
-            
+
         Returns:
             PokleTestCase instance with Card objects
         """
@@ -116,7 +120,7 @@ class PokleTestCase:
             river_rankings=river_rankings,
             expected_rivers=expected_rivers,
         )
-    
+
     def create_solver(self) -> Solver:
         """Create a Solver instance from this test case."""
         return Solver(
@@ -202,22 +206,29 @@ TEST_CASES = {
         flop_rankings=[1, 2, 3],
         turn_rankings=[2, 1, 3],
         river_rankings=[2, 1, 3],
-    )
+    ),
 }
 
-def sandbox():
+
+def sandbox() -> None:
     """Interactive game loop using pre-configured test case."""
     # Use current example (1/13)
     test_case = TEST_CASES["example_1_13"]
-    
+
     solver = test_case.create_solver()
     possible_tables = solver.solve()
     print(f"Possible tables found: {len(possible_tables)}")
-    solver.print_game(solver.get_maxh_table())
+    # maxh_table = solver.get_maxh_table(use_sampling=True)
+    # maxh_table = [card for card in maxh_table if card is not None]
+    # solver.print_game(maxh_table)
 
     card_colors = ["e" for _ in range(5)]
     is_all_green = False
     while not is_all_green:
+        maxh_table = solver.get_maxh_table()
+        maxh_table = [card for card in maxh_table if card is not None]
+        solver.print_game(maxh_table)
+
         color_input = input(
             "Enter color feedback for river cards (g=green, y=yellow, e=grey), e.g. g y e e g: "
         ).lower()
@@ -232,9 +243,13 @@ def sandbox():
             solver.next_table_guess(card_colors)
             print(f"Possible tables remaining: {len(solver.valid_tables)}")
             is_all_green = all(color == "g" for color in card_colors)
-            solver.print_game(solver.get_maxh_table())
+            # maxh_table = solver.get_maxh_table()
+            # maxh_table = [card for card in maxh_table if card is not None]
+            # solver.print_game(maxh_table)
         except ValueError as e:
             print(f"Error: {e}")
+
+    solver.print_game(maxh_table)
 
 
 if __name__ == "__main__":

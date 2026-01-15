@@ -21,7 +21,7 @@ from .card import Card, ColorCard, RANK_MIN, RANK_MAX, VALID_SUITS as SUITS
 from itertools import combinations
 from scipy.stats import entropy
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Sequence, Iterable, Iterator
 from numba import guvectorize, int8, int16
 import numpy as np
 import polars as pl
@@ -217,7 +217,7 @@ class Solver:
         }
 
     @property
-    def valid_tables(self):
+    def valid_tables(self) -> list[list[Card]]:
         """Get the list of valid river tables found by solve().
 
         Returns:
@@ -231,7 +231,7 @@ class Solver:
         return self.__valid_tables
 
     @staticmethod
-    def __rank_hand(table: list, hole: list) -> HandRanking:
+    def __rank_hand(table: list[Card], hole: list[Card]) -> HandRanking:
         """Evaluate the best 5-card poker hand from hole cards and table cards.
 
         Args:
@@ -426,7 +426,9 @@ class Solver:
             pair = rank_groups[pair_rank]
             remaining = sorted(set(cards) - set(pair), reverse=True)
             remaining_ranks = [c.rank for c in remaining[:3]]
-            return HandRanking(HAND_RANK_PAIR, tuple([pair_rank] + remaining_ranks), tuple(pair))
+            return HandRanking(
+                HAND_RANK_PAIR, tuple([pair_rank] + remaining_ranks), tuple(pair)
+            )
 
         # High card
         best_hand = sorted(cards, reverse=True)[:5]
@@ -437,7 +439,7 @@ class Solver:
             tuple([best_hand[0]]),
         )
 
-    def __possible_flops(self):
+    def __possible_flops(self) -> Iterator[tuple[list[Card], set[Card]]]:
         """Find all possible flops that maintain the current player rankings.
 
         Yields:
@@ -461,7 +463,7 @@ class Solver:
             if is_valid:
                 yield (flop_table, cards_used)
 
-    def __evaluate_phase(self, phase_eval: PhaseEvaluation):
+    def __evaluate_phase(self, phase_eval: PhaseEvaluation) -> tuple[bool, set[Card]]:
         """Helper method to evaluate hands for all players at a given phase.
 
         Args:
@@ -541,10 +543,10 @@ class Solver:
 
     def __find_valid_next_phase(
         self,
-        prev_phase_results,
-        expected_rankings: list,
+        prev_phase_results: Iterable[tuple[list[Card], set[Card]]],
+        expected_rankings: list[int],
         validate_all_cards_used: bool = False,
-    ):
+    ) -> Iterator[tuple[list[Card], set[Card]]]:
         """Helper method to find valid tables for the next phase (turn or river).
 
         Args:
@@ -572,7 +574,9 @@ class Solver:
                 if is_valid:
                     yield (next_table, cards_used)
 
-    def __possible_turns(self, flops):
+    def __possible_turns(
+        self, flops: Iterable[tuple[list[Card], set[Card]]]
+    ) -> Iterator[tuple[list[Card], set[Card]]]:
         """Find all possible turns that maintain the current player rankings.
 
         Args:
@@ -583,7 +587,9 @@ class Solver:
         """
         return self.__find_valid_next_phase(flops, self.turn_hand_ranks)
 
-    def __possible_rivers(self, turns):
+    def __possible_rivers(
+        self, turns: Iterable[tuple[list[Card], set[Card]]]
+    ) -> Iterator[tuple[list[Card], set[Card]]]:
         """Find all possible rivers that maintain the current player rankings.
 
         Args:
@@ -656,7 +662,7 @@ class Solver:
 
             result[table_idx] = result_value
 
-    def __organize_flop(self, table: list):
+    def __organize_flop(self, table: list[Card]) -> list[Card | None]:
         """
         Organize flop cards based on matching priority with the previous table.
 
@@ -680,7 +686,7 @@ class Solver:
         """
         preceding_flop = self.__used_tables[-1][:FLOP_SIZE].copy()
         current_flop = table[:FLOP_SIZE].copy()
-        updated_flop = [None] * FLOP_SIZE
+        updated_flop: list[Card | None] = [None] * FLOP_SIZE
 
         # Phase 1: Exact card matches (highest priority)
         for i, prev_card in enumerate(preceding_flop):
@@ -723,12 +729,17 @@ class Solver:
 
         # Phase 4: Fill remaining slots with leftover cards
         for i in range(FLOP_SIZE):
-            if updated_flop[i] is None and current_flop:
-                updated_flop[i] = current_flop.pop(0)
+            if updated_flop[i] is None:
+                if current_flop:
+                    updated_flop[i] = current_flop.pop(0)
+                else:
+                    raise ValueError(
+                        "Not enough cards to fill flop"
+                    )  # Fail fast if logic is wrong
 
         return updated_flop + table[FLOP_SIZE:]
 
-    def get_maxh_table(self, use_sampling: bool = True):
+    def get_maxh_table(self, use_sampling: bool = True) -> Sequence[Card | None]:
         """Calculate the table with highest entropy from all possible rivers.
 
         For large river sets (>1000), uses sampling to approximate entropy efficiently.
@@ -738,7 +749,7 @@ class Solver:
             use_sampling (bool): Force sampling on/off. Defaults to True.
 
         Returns:
-            List: The river with the highest entropy.
+            Sequence[Card | None]: The river with the highest entropy. May contain None values.
         """
         # Validate state
         if not getattr(self, "_Solver__valid_tables", None):
@@ -758,9 +769,7 @@ class Solver:
         rivers_lf = rivers_df.lazy()
 
         if use_sampling and len(rivers) > 50:
-            sampled_rivers_lf = rivers_df.sample(
-                n=50, with_replacement=False
-            ).lazy()
+            sampled_rivers_lf = rivers_df.sample(n=50, with_replacement=False).lazy()
             self.__compared_tables = sampled_rivers_lf.join(
                 rivers_lf, how="cross", suffix="_answer"
             )
@@ -827,8 +836,8 @@ class Solver:
             self.__print_maxh_table = self.__maxh_table.copy()
 
         return self.__print_maxh_table
-    
-    def next_table_guess(self, table_colors: list):
+
+    def next_table_guess(self, table_colors: list[str]) -> list[list[Card]]:
         """Filter valid rivers based on color feedback from the current guess.
 
         Updates the internal list of valid rivers to only include those that
@@ -930,8 +939,9 @@ class Solver:
             raise ValueError(
                 f"No rivers match colors={table_colors!r} for guess={guess_str!r}."
             )
+        return self.__valid_tables
 
-    def solve(self):
+    def solve(self) -> list[list[Card]]:
         """Find all possible table runouts that maintain the expected hand rankings.
 
         Searches exhaustively through all possible flop/turn/river combinations
@@ -957,7 +967,7 @@ class Solver:
         return self.__valid_tables
 
     @staticmethod
-    def __player_hand_place(hand_ranks: list):
+    def __player_hand_place(hand_ranks: list[int]) -> list[int]:
         """Convert list of player hands ordered by hand strength to a list of places for each player.
 
         Args:
@@ -977,7 +987,7 @@ class Solver:
         enum_rankings.sort(key=lambda x: x[1])  # Sort by player number
         return [place for place, _ in enum_rankings]
 
-    def print_game(self, table: list):
+    def print_game(self, table: list[Card]) -> None:
         """Print a formatted game state display with hand rankings and table cards.
 
         Shows player hole cards, hand strengths at each phase (flop/turn/river),
