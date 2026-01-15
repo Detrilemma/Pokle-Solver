@@ -52,35 +52,27 @@ class Card:
     _card_index_cache = {}
     _suit_indices = {"C": 0, "D": 1, "H": 2, "S": 3}
 
-    def __init__(self, rank: int | None = None, suit: str | None = None):
-        has_rank_and_suit = rank is not None and suit is not None
-        if has_rank_and_suit:
-            assert rank is not None and suit is not None  # Type narrowing
-            if rank < RANK_MIN or rank > RANK_MAX:
-                raise ValueError(
-                    f"Rank must be between {RANK_MIN} and {RANK_MAX} (where {RANK_JACK}=J, {RANK_QUEEN}=Q, {RANK_KING}=K, {RANK_ACE}=A)"
-                )
-            assert (
-                rank is not None and suit is not None
-            )  # Type narrowing for cache operations
-            cache_key = (rank, suit)
-            if cache_key not in Card._card_index_cache:
-                Card._card_index_cache[cache_key] = (rank - 2) * 4 + Card._suit_indices[
-                    suit
-                ]
-            self._card_index = Card._card_index_cache[cache_key]
-            if suit not in VALID_SUITS:
-                raise ValueError(f"Suit must be one of {VALID_SUITS}")
-        else:
-            self._card_index = None
+    def __init__(self, rank: int, suit: str):
+        if rank < RANK_MIN or rank > RANK_MAX:
+            raise ValueError(
+                f"Rank must be between {RANK_MIN} and {RANK_MAX} (where {RANK_JACK}=J, {RANK_QUEEN}=Q, {RANK_KING}=K, {RANK_ACE}=A)"
+            )
+        if suit not in VALID_SUITS:
+            raise ValueError(f"Suit must be one of {VALID_SUITS}")
+
+        cache_key = (rank, suit)
+        if cache_key not in Card._card_index_cache:
+            Card._card_index_cache[cache_key] = (rank - 2) * 4 + Card._suit_indices[
+                suit
+            ]
+        self._card_index = Card._card_index_cache[cache_key]
 
         self._rank = rank
         self._suit = suit
         self._hash = None  # Lazy hash computation
-        # Use cached card_index or compute and cache it
 
     @classmethod
-    def from_string(cls, card_string: str):
+    def from_string(cls, card_string: str) -> "Card":
         """Create a Card from a string representation.
 
         Args:
@@ -107,7 +99,7 @@ class Card:
         return cls(rank, suit)
 
     @classmethod
-    def from_tuple(cls, card_tuple: tuple):
+    def from_tuple(cls, card_tuple: tuple[int | str, str]) -> "Card":
         """Create a Card from a tuple representation.
 
         Args:
@@ -127,7 +119,7 @@ class Card:
         return cls(rank, suit)
 
     @property
-    def rank(self) -> int | None:
+    def rank(self) -> int:
         """Get the rank of the card.
 
         Returns:
@@ -136,7 +128,7 @@ class Card:
         return self._rank
 
     @property
-    def suit(self) -> str | None:
+    def suit(self) -> str:
         """Get the suit of the card.
 
         Returns:
@@ -145,11 +137,11 @@ class Card:
         return self._suit
 
     @property
-    def card_index(self) -> int | None:
+    def card_index(self) -> int:
         """Get the card index (0-51) for this card.
 
         Returns:
-            int: Card index in the range 0-51, or None if card has no rank/suit
+            int: Card index in the range 0-51
         """
         return self._card_index
 
@@ -186,17 +178,14 @@ class Card:
         except ValueError:
             raise ValueError("Rank must be an integer or a valid face card")
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"Card(rank={self._rank}, suit='{self._suit}')"
 
-    def __str__(self):
-        if self._rank is None and self._suit is None:
-            return "__"
+    def __str__(self) -> str:
         face_cards = {RANK_JACK: "J", RANK_QUEEN: "Q", RANK_KING: "K", RANK_ACE: "A"}
-        assert self._rank is not None and self._suit is not None
         return f"{face_cards.get(self._rank, self._rank)}{self._suit}"
 
-    def pstr(self):
+    def pstr(self) -> str:
         """Return a pretty-printed colored string representation of the Card.
 
         Returns:
@@ -207,9 +196,6 @@ class Card:
             >>> card.pstr()  # Returns colored output (shown as plain text here)
             ' A♥'
         """
-        if self._rank is None and self._suit is None:
-            return "__"
-
         face_cards = {RANK_JACK: "J", RANK_QUEEN: "Q", RANK_KING: "K", RANK_ACE: "A"}
         suit_symbols = {"H": "♥", "D": "♦", "C": "♣", "S": "♠"}
         suit_colors = {
@@ -220,7 +206,6 @@ class Card:
         }  # Red for H/D, Black for C/S
 
         reset_color = "\033[0m"
-        assert self._rank is not None and self._suit is not None
         rank_str = face_cards.get(self._rank, str(self._rank))
         suit_symbol = suit_symbols[self._suit]
 
@@ -232,47 +217,42 @@ class Card:
 
         return f"{bg_color}{text_color}{visible_str}{reset_color}"
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, Card):
             return self._rank == other._rank and self._suit == other._suit
         return NotImplemented
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         if self._hash is None:
             self._hash = hash((self._rank, self._suit))
         return self._hash
 
-    def __lt__(self, other):
+    def __lt__(self, other: object) -> bool:
         if isinstance(other, Card):
-            if self._rank is None or other._rank is None:
-                return NotImplemented
             return self._rank < other._rank
+        return NotImplemented
 
-    def __le__(self, other):
+    def __le__(self, other: object) -> bool:
         if isinstance(other, Card):
-            if self._rank is None or other._rank is None:
-                return NotImplemented
             return self._rank <= other._rank
+        return NotImplemented
 
-    def __gt__(self, other):
+    def __gt__(self, other: object) -> bool:
         if isinstance(other, Card):
-            if self._rank is None or other._rank is None:
-                return NotImplemented
             return self._rank > other._rank
+        return NotImplemented
 
-    def __ge__(self, other):
+    def __ge__(self, other: object) -> bool:
         if isinstance(other, Card):
-            if self._rank is None or other._rank is None:
-                return NotImplemented
             return self._rank >= other._rank
         return NotImplemented
 
-    def __ne__(self, other):
+    def __ne__(self, other: object) -> bool:
         if isinstance(other, Card):
             return self._rank != other._rank or self._suit != other._suit
         return NotImplemented
 
-    def is_same_suit(self, other):
+    def is_same_suit(self, other: "Card") -> bool:
         """Check if two Cards have the same suit.
 
         Args:
@@ -292,7 +272,7 @@ class Card:
             return self._suit == other._suit
         return NotImplemented
 
-    def is_same_rank(self, other):
+    def is_same_rank(self, other: "Card") -> bool:
         """Check if two Cards have the same rank.
 
         Args:
@@ -312,7 +292,7 @@ class Card:
             return self._rank == other._rank
         return NotImplemented
 
-    def to_color(self, color: str = COLOR_GREY):
+    def to_color(self, color: str = COLOR_GREY) -> "ColorCard":
         """Convert this Card to a ColorCard with the specified color.
 
         Args:
@@ -360,9 +340,7 @@ class ColorCard(Card):
 
     __slots__ = ("_color", "_hash_color")
 
-    def __init__(
-        self, rank: int | None = None, suit: str | None = None, color: str = COLOR_GREY
-    ):
+    def __init__(self, rank: int, suit: str, color: str = COLOR_GREY):
         super().__init__(rank, suit)
         if color not in VALID_COLORS:
             raise ValueError(f"Color must be one of {VALID_COLORS}")
@@ -370,7 +348,7 @@ class ColorCard(Card):
         self._hash_color = None  # Lazy hash computation
 
     @classmethod
-    def from_string(cls, card_string: str):
+    def from_string(cls, card_string: str) -> "ColorCard":
         """Create a ColorCard from a string representation.
 
         Args:
@@ -393,7 +371,9 @@ class ColorCard(Card):
             return cls(base_card.rank, base_card.suit, COLOR_GREY)
 
     @classmethod
-    def from_tuple(cls, card_tuple: tuple):
+    def from_tuple(
+        cls, card_tuple: tuple[int | str, str] | tuple[int | str, str, str]
+    ) -> "ColorCard":
         """Create a ColorCard from a tuple representation.
 
         Args:
@@ -423,15 +403,15 @@ class ColorCard(Card):
             rank = cls.rank_from_string(rank)
         return cls(rank, suit, color)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (
             f"ColorCard(rank={self._rank}, suit='{self._suit}', color='{self.color}')"
         )
 
-    def __str__(self):
+    def __str__(self) -> str:
         return super().__str__() + f"_{self.color}"
 
-    def pstr(self):
+    def pstr(self) -> str:
         """Return a pretty-printed colored string with background color.
 
         Returns:
@@ -455,7 +435,7 @@ class ColorCard(Card):
         return self._color
 
     @color.setter
-    def color(self, value: str):
+    def color(self, value: str) -> None:
         if value not in VALID_COLORS:
             raise ValueError(f"Color must be one of {VALID_COLORS}")
         self._color = value

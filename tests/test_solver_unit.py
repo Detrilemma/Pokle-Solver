@@ -597,6 +597,46 @@ class TestCompareTablesMethod:
 
         assert result[0] == 0  # 00000
 
+    def test_compare_tables_green_match_priority_over_yellow(self):
+        """Test that green matches are found before yellow matches consume the card.
+
+        Regression test for bug where flop cards were processed sequentially,
+        allowing an earlier card to "steal" a suit match (yellow) before a later
+        card could claim its exact match (green).
+
+        Test case:
+        - guess=[4C, 9H, 2C, AD, 3D] (4C at position 0 shares suit with 2C)
+        - answer=[2C, 9S, 2S, 4S, 5S] (2C is in the answer's flop)
+
+        Without the fix (processing in order 0->1->2):
+        - Position 0 (4C): suit C matches 2C in answer -> yellow (WRONG - steals match)
+        - Position 2 (2C): 2C is in answer flop -> green, but answer's 2C already "used"
+
+        With the fix (green pass first, then yellow pass):
+        - First pass: 2C at position 2 matches answer's 2C -> green
+        - Second pass: 4C at position 0, suit C already claimed by green match -> grey
+
+        Expected: [grey, yellow, green, grey, grey] = 01200
+        - 4C: grey (suit C was claimed by 2C's green match)
+        - 9H: yellow (rank 9 matches 9S in answer flop)
+        - 2C: green (exact match in answer flop)
+        - AD: grey (no match)
+        - 3D: grey (no match)
+        """
+        guess = [Card.from_string(c) for c in ["4C", "9H", "2C", "AD", "3D"]]
+        answer = [Card.from_string(c) for c in ["2C", "9S", "2S", "4S", "5S"]]
+        guess_index = np.array([[card.card_index for card in guess]], dtype=np.int8)
+        answer_index = np.array([[card.card_index for card in answer]], dtype=np.int8)
+
+        result = np.zeros(1, dtype=np.int16)
+        Solver._Solver__compare_tables(guess_index, answer_index, result)  # type: ignore[attr-defined]
+
+        # Expected: grey=0, yellow=1, green=2, grey=0, grey=0 -> 01200
+        assert result[0] == 1200, (
+            f"Expected 01200 (grey, yellow, green, grey, grey) but got {result[0]:05d}. "
+            "Green matches should be found before yellow matches consume the answer card."
+        )
+
 
 class TestRankHandBestHandTuple:
     """Test that rank_hand returns correct best_hand tuples.
@@ -608,14 +648,15 @@ class TestRankHandBestHandTuple:
     """
 
     def test_high_card_best_hand_has_5_cards(self):
-        """Test that high card returns exactly 5 cards in best_hand."""
+        """Test that high card returns exactly 1 card in best_hand (the high card itself)."""
         table = [Card(2, "H"), Card(5, "D"), Card(9, "S")]
         hole = [Card(10, "C"), Card(13, "H")]
 
         ranking = Solver._Solver__rank_hand(table, hole)
 
         assert ranking.rank == 1  # High card
-        assert len(ranking.best_hand) == 5
+        assert len(ranking.best_hand) == 1  # Only stores the high card
+        assert ranking.best_hand[0].rank == 13  # King is the high card
         assert ranking.tie_breakers == (13, 10, 9, 5, 2)
 
     def test_one_pair_best_hand_has_2_cards(self):
@@ -807,3 +848,118 @@ class TestSolverTableCountRegression:
         # All runs should produce identical counts
         assert all(count == results[0] for count in results)
         assert results[0] == 1474
+
+
+class TestSolverTableCountRegressionKickerBug:
+    """Regression tests for the kicker card bug found on Jan 13, 2026.
+
+    This bug was introduced in commit 1901440 on Dec 28, 2025 when the
+    rank_hand method was 'optimized'. The buggy version produced incorrect
+    kicker selection for pairs, two pairs, and three of a kind, causing
+    the solver to accept invalid tables where not all table cards were used.
+
+    These tests validate the exact table counts for scenarios that caught
+    the bug: slow_output and very_slow.
+    """
+
+    def test_slow_output_scenario_exact_count(self):
+        """Test that slow_output scenario produces exactly 1,323 tables.
+
+        This was the primary test case that caught the bug:
+        - Buggy version: 20,873 tables (15.8x too many)
+        - Correct version: 1,323 tables
+        """
+        p1 = [Card.from_string("KH"), Card.from_string("6S")]
+        p2 = [Card.from_string("8C"), Card.from_string("8H")]
+        p3 = [Card.from_string("4H"), Card.from_string("9S")]
+
+        solver = Solver(p1, p2, p3, [2, 3, 1], [3, 2, 1], [3, 1, 2])
+        tables = solver.solve()
+
+        assert len(tables) == 1323, (
+            f"slow_output scenario should produce exactly 1,323 tables, "
+            f"but got {len(tables)}. This may indicate a regression in "
+            f"kicker card selection logic."
+        )
+
+    def test_very_slow_scenario_exact_count(self):
+        """Test that very_slow scenario produces exactly 7,606 tables.
+
+        This was the secondary test case that confirmed the bug:
+        - Buggy version: 14,528 tables (1.9x too many)
+        - Correct version: 7,606 tables
+        """
+        p1 = [Card.from_string("JH"), Card.from_string("6H")]
+        p2 = [Card.from_string("4H"), Card.from_string("7S")]
+        p3 = [Card.from_string("5D"), Card.from_string("8D")]
+
+        solver = Solver(p1, p2, p3, [3, 2, 1], [2, 3, 1], [2, 1, 3])
+        tables = solver.solve()
+
+        assert len(tables) == 7606, (
+            f"very_slow scenario should produce exactly 7,606 tables, "
+            f"but got {len(tables)}. This may indicate a regression in "
+            f"kicker card selection logic."
+        )
+
+    def test_kicker_sorting_with_multiple_same_rank_cards(self):
+        """Test that kicker selection works correctly when multiple cards share ranks.
+
+        The bug was caused by sorting ranks directly instead of sorting cards
+        and then extracting ranks. This test verifies correct behavior when
+        there are multiple cards of the same rank among potential kickers.
+        """
+        # Setup: Three of a kind (10s) with distinct kickers (7, 5, 4, 3)
+        table = [
+            Card(10, "H"),
+            Card(10, "D"),
+            Card(10, "S"),
+            Card(7, "H"),
+            Card(5, "C"),
+        ]
+        hole = [Card(4, "D"), Card(3, "S")]
+
+        ranking = Solver._Solver__rank_hand(table, hole)
+
+        # Should be three of a kind (rank 4)
+        assert ranking.rank == 4
+        # Kickers should be the two highest ranks from non-trips: 7 and 5
+        assert ranking.tie_breakers == (10, 7, 5)
+        # best_hand should only contain the three 10s
+        assert len(ranking.best_hand) == 3
+        assert all(c.rank == 10 for c in ranking.best_hand)
+
+    def test_two_pair_kicker_selection_deterministic(self):
+        """Test that two pair kicker is selected deterministically.
+
+        The bug affected how the kicker was selected from remaining cards.
+        This ensures the highest kicker is always chosen correctly.
+        """
+        # Two pair: 10s and 5s, with kicker options 8, 3, 2
+        table = [Card(10, "H"), Card(10, "D"), Card(5, "S")]
+        hole = [Card(5, "H"), Card(8, "C")]
+        extra_cards = [Card(3, "C"), Card(2, "D")]
+
+        ranking = Solver._Solver__rank_hand(table + extra_cards, hole)
+
+        assert ranking.rank == 3  # Two pair
+        assert ranking.tie_breakers == (10, 5, 8)  # Should pick 8 as kicker, not 3 or 2
+        assert len(ranking.best_hand) == 4  # Only the two pairs
+
+    def test_one_pair_multiple_kickers_correct_order(self):
+        """Test that one pair selects kickers in correct descending order.
+
+        The buggy version could select kickers in wrong order when using
+        rank_groups.keys() directly instead of sorting actual cards.
+        """
+        # One pair of 10s with kickers 14, 9, 5, 3, 2
+        table = [Card(10, "H"), Card(10, "D"), Card(9, "S")]
+        hole = [Card(14, "H"), Card(5, "C")]
+        extra_cards = [Card(3, "D"), Card(2, "S")]
+
+        ranking = Solver._Solver__rank_hand(table + extra_cards, hole)
+
+        assert ranking.rank == 2  # One pair
+        # Kickers should be top 3: Ace (14), 9, 5
+        assert ranking.tie_breakers == (10, 14, 9, 5)
+        assert len(ranking.best_hand) == 2  # Only the pair

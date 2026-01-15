@@ -16,12 +16,12 @@ if __name__ == "__main__":
     # Running as script - use absolute imports with sys.path manipulation
     import sys
     from pathlib import Path
-    
+
     # Add parent directory to path so we can import pokle_solver
     src_path = Path(__file__).parent.parent
     if str(src_path) not in sys.path:
         sys.path.insert(0, str(src_path))
-    
+
     from pokle_solver.card import Card
     from pokle_solver.solver import Solver
 else:
@@ -30,7 +30,7 @@ else:
     from .solver import Solver
 
 
-def cli():
+def cli() -> None:
     player_holes = []
     player_number = 1
     while player_number <= 3:
@@ -63,9 +63,8 @@ def cli():
             if sorted(hand_ranks) != ["1", "2", "3"]:
                 raise ValueError("Please enter valid ranks (1, 2, 3) for each player.")
             hand_ranks = [int(rank) for rank in hand_ranks]
-            temp_hand_ranks = hand_ranks.copy()
-            hand_ranks[:] = [
-                temp_hand_ranks.index(i) + 1 for i in range(1, len(temp_hand_ranks) + 1)
+            hand_ranks = [
+                i for i, _ in sorted(enumerate(hand_ranks, start=1), key=lambda x: x[1])
             ]
             hand_ranks_list.append(hand_ranks)
             game_phase_number += 1
@@ -77,11 +76,13 @@ def cli():
     solver = Solver(p1_hole, p2_hole, p3_hole, flop, turn, river)
     possible_tables = solver.solve()
     print(f"Possible tables found: {len(possible_tables)}")
-    solver.print_game(solver.get_maxh_table())
 
     card_colors = ["e" for _ in range(5)]
     is_all_green = False
     while not is_all_green:
+        maxh_table = solver.get_maxh_table()
+        maxh_table = [card for card in maxh_table if card is not None]
+        solver.print_game(maxh_table)
         color_input = input(
             "Enter color feedback for river cards (g=green, y=yellow, e=grey), e.g. g y e e g: "
         ).lower()
@@ -96,9 +97,10 @@ def cli():
             solver.next_table_guess(card_colors)
             print(f"Possible tables remaining: {len(solver.valid_tables)}")
             is_all_green = all(color == "g" for color in card_colors)
-            solver.print_game(solver.get_maxh_table())
         except ValueError as e:
             print(f"Error: {e}")
+
+    solver.print_game(maxh_table)
 
 
 if __name__ == "__main__":

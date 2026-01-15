@@ -38,16 +38,14 @@ class TestCardInitialization:
             Card(15, "H")
 
     def test_init_with_invalid_suit(self):
-        """Test that invalid suit raises KeyError."""
-        with pytest.raises(KeyError):
+        """Test that invalid suit raises ValueError."""
+        with pytest.raises(ValueError):
             Card(10, "X")
 
-    def test_init_with_none_values(self):
-        """Test creating a card with None rank and suit (placeholder card)."""
-        card = Card()
-        assert card.rank is None
-        assert card.suit is None
-        assert card.card_index is None
+    def test_init_without_args_raises(self):
+        """Test that missing rank/suit raises TypeError."""
+        with pytest.raises(TypeError):
+            Card()
 
     def test_card_index_caching(self):
         """Test that card_index is cached and consistent."""
@@ -243,11 +241,10 @@ class TestCardComparison:
         assert card1 >= card2
 
     def test_comparison_with_none_ranks(self):
-        """Test that comparison with None ranks raises TypeError."""
-        card1 = Card()  # None rank
-        card2 = Card(10, "H")
+        """Test that comparison with incompatible types raises TypeError."""
+        card = Card(10, "H")
         with pytest.raises(TypeError):
-            _ = card1 < card2  # type: ignore[operator]
+            _ = card < "not a card"  # type: ignore[operator]
 
     def test_hash_consistency_with_equality(self):
         """Test that equal cards have the same hash."""
@@ -375,20 +372,10 @@ class TestCardStringRepresentation:
         card = Card(7, "D")
         assert str(card) == "7D"
 
-    def test_str_none_card(self):
-        """Test string representation of None card."""
-        card = Card()
-        assert str(card) == "__"
-
     def test_repr(self):
         """Test repr representation."""
         card = Card(10, "H")
         assert repr(card) == "Card(rank=10, suit='H')"
-
-    def test_repr_none_card(self):
-        """Test repr of None card."""
-        card = Card()
-        assert repr(card) == "Card(rank=None, suit='None')"
 
     def test_pstr_contains_ansi_codes(self):
         """Test pstr returns string with ANSI color codes."""
@@ -396,11 +383,6 @@ class TestCardStringRepresentation:
         pstr = card.pstr()
         assert "\033[" in pstr  # Contains ANSI escape codes
         assert "A♥" in pstr or "A" in pstr  # Contains card representation
-
-    def test_pstr_none_card(self):
-        """Test pstr for None card returns placeholder."""
-        card = Card()
-        assert card.pstr() == "__"
 
 
 class TestColorCard:
