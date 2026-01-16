@@ -1,6 +1,6 @@
 # Pokle Solver
 
-An automated solver for [Pokle](https://pokle.app/), a daily poker hand ranking puzzle game inspired by Wordle.
+An automated solver for [Pokle](https://poklegame.com/), a daily poker hand ranking puzzle game inspired by Wordle.
 
 ## Overview
 
@@ -16,20 +16,6 @@ Pokle challenges players to identify the winning poker hand across three rounds 
   - ⚫ Grey: Card rank and suit not in the answer
 - **Sampling Optimization**: Efficient sampling strategies to reduce computational overhead
 - **Comprehensive Test Suite**: Unit and integration tests ensuring solver accuracy
-
-## Installation
-
-```bash
-# Clone the repository
-git clone <repository-url>
-cd pokle_solver
-
-# Install dependencies using Poetry
-poetry install
-
-# Install Playwright browsers (for auto-solve functionality)
-poetry run playwright install
-```
 
 ## Usage
 
@@ -129,7 +115,6 @@ The solver employs a constraint satisfaction approach:
 ### Key Optimizations
 
 - **Numba JIT Compilation**: `__compare_tables` uses `@guvectorize` for efficient parallel processing
-- **Two-Pass Matching**: Flop cards match green positions first, then yellow (position-agnostic)
 - **Sampling**: Reduces search space for large valid table sets
 - **DOM Reliability**: Index-based selectors with `.last` ensure accurate color feedback extraction
 
@@ -148,20 +133,7 @@ poetry run ruff check --fix
 poetry run mypy src/
 ```
 
-### Contributing
-
-1. Create a feature branch: `git switch -c feature-name`
-2. Make changes and add tests
-3. Ensure all tests pass: `poetry run pytest`
-4. Format and lint: `poetry run ruff format && ruff check --fix`
-5. Commit changes: `git commit -m "Description"`
-6. Push and open a pull request
-
-## License
-
-[Add license information]
-
 ## Acknowledgments
 
-- Inspired by the daily [Pokle](https://pokle.app/) puzzle game
+- Inspired by the daily [Pokle](https://poklegame.com/) puzzle game
 - Built with Python, Numba, and Playwright
